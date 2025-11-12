@@ -1,0 +1,412 @@
+---
+title: "Proyecto_Clima_Aula_Script2"
+author: "Nicolás Bello (cn.belloc@uniandes.edu.co)"
+date: "2025-07-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librerias
+
+Se cargan las siguientes librerias para la ejecución del código. Note que la libreria ditwhisker es posible que se deba instalar manualmente ya que al momento de la creación de este script fue dada de baja de la página CRAN
+
+```{r}
+library(RColorBrewer)
+library(dplyr)
+library(tibble)
+library(dotwhisker)
+library(ggplot2)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(foreign)
+library(haven)
+library(matrixStats)
+library(devtools)
+library(broom)
+library(ggplot2)
+library(latex2exp)
+library(dplyr)
+library(stringr)
+library(githubinstall)
+library(dotwhisker)
+library(scales)
+library(stargazer)
+```
+
+## Lugares de trabajo y outputs
+
+Se definen los siguientes entornos de trabajo y capetas para visualizar outputs. Estas son las rutas que debe modificar para ejecutar el código.
+
+td: "transformed data" es la data producto del proceso de limpieza y estandarización del script 1
+
+```{r}
+raw_data <- "C:/Users/NICOLAS/Desktop/PPsize_v02/raw data"
+transformed_data <- "C:/Users/NICOLAS/Desktop/PPsize_v02/transformed data"
+```
+
+## Modelos desempeño con controles demográficos
+```{r}
+# Traemos tablas demográficas creadas anteriormente
+setwd(transformed_data)
+gTablaDemografica2022 <- read.csv("gTablaDemografica2022.csv")
+gTablaDemografica2023 <- read.csv("gTablaDemografica2023.csv")
+```
+
+# 2022
+```{r}
+# RLS
+
+# Dummy EsGrande
+modelo2022_EG <- lm(Ep ~ EsGrande, data = gTablaDemografica2022)
+
+tidy_modelo2022_EG <- tidy(modelo2022_EG)
+tidy_modelo2022_EG
+
+modelo2022_Ed <- lm(Ed ~ EsGrande, data = gTablaDemografica2022)
+
+tidy_modelo2022_Ed <- tidy(modelo2022_Ed)
+tidy_modelo2022_Ed
+
+modelo2022_E1 <- lm(E1 ~ EsGrande, data = gTablaDemografica2022)
+
+tidy_modelo2022_E1 <- tidy(modelo2022_E1)
+tidy_modelo2022_E1
+
+modelo2022_E2 <- lm(E2 ~ EsGrande, data = gTablaDemografica2022)
+
+tidy_modelo2022_E2 <- tidy(modelo2022_E2)
+tidy_modelo2022_E2
+
+modelo2022_E3 <- lm(E3 ~ EsGrande, data = gTablaDemografica2022)
+
+tidy_modelo2022_E3 <- tidy(modelo2022_E3)
+tidy_modelo2022_E3
+
+modelo2022_E4 <- lm(E4 ~ EsGrande, data = gTablaDemografica2022)
+
+tidy_modelo2022_E4 <- tidy(modelo2022_E4)
+tidy_modelo2022_E4
+
+# Puntaje Uniandes
+
+temp <- quantile(gTablaDemografica2022$puniandes, probs = c(0.25, 0.50, 0.75), na.rm = TRUE)
+
+gTablaDemografica2022$q_puniandes_2022 <- NA
+
+gTablaDemografica2022$q_puniandes_2022[gTablaDemografica2022$puniandes < temp[1]] <- 1
+gTablaDemografica2022$q_puniandes_2022[(gTablaDemografica2022$puniandes >= temp[1]) & (gTablaDemografica2022$puniandes < temp[2])]  <- 2
+gTablaDemografica2022$q_puniandes_2022[(gTablaDemografica2022$puniandes >= temp[2]) & (gTablaDemografica2022$puniandes < temp[3])]  <- 3
+gTablaDemografica2022$q_puniandes_2022[gTablaDemografica2022$puniandes >= temp[3]] <- 4
+
+# Dummy
+
+modelo2022_puniandes <- lm( Ep ~ d_puniandes_2022, data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes <- tidy(modelo2022_puniandes)
+tidy_modelo2022_puniandes
+
+modelo2022_puniandes_d <- lm( Ed ~ d_puniandes_2022, data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes_d <- tidy(modelo2022_puniandes_d)
+tidy_modelo2022_puniandes_d
+
+modelo2022_puniandes_1 <- lm( E1 ~ d_puniandes_2022, data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes_1 <- tidy(modelo2022_puniandes_1)
+tidy_modelo2022_puniandes_1
+
+modelo2022_puniandes_2 <- lm( E2 ~ d_puniandes_2022, data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes_2 <- tidy(modelo2022_puniandes_2)
+tidy_modelo2022_puniandes_2
+
+modelo2022_puniandes_3 <- lm( E3 ~ d_puniandes_2022, data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes_3 <- tidy(modelo2022_puniandes_3)
+tidy_modelo2022_puniandes_3
+
+modelo2022_puniandes_4 <- lm( E4 ~ d_puniandes_2022, data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes_4 <- tidy(modelo2022_puniandes_4)
+tidy_modelo2022_puniandes_4
+
+# quantiles
+
+modelo2022_puniandes_q_p <- lm( Ep ~ as.factor(q_puniandes_2022), data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes_q_p  <- tidy(modelo2022_puniandes_q_p)
+tidy_modelo2022_puniandes_q_p
+
+modelo2022_puniandes_q_d <- lm( Ed ~ as.factor(q_puniandes_2022), data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes_q_d  <- tidy(modelo2022_puniandes_q_d)
+tidy_modelo2022_puniandes_q_d
+
+modelo2022_puniandes_q_1 <- lm( E1 ~ as.factor(q_puniandes_2022), data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes_q_1 <- tidy(modelo2022_puniandes_q_1)
+tidy_modelo2022_puniandes_q_1
+
+modelo2022_puniandes_q_2 <- lm( E2 ~ as.factor(q_puniandes_2022), data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes_q_2 <- tidy(modelo2022_puniandes_q_2)
+tidy_modelo2022_puniandes_q_2
+
+modelo2022_puniandes_q_3 <- lm( E3 ~ as.factor(q_puniandes_2022), data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes_q_3 <- tidy(modelo2022_puniandes_q_3)
+tidy_modelo2022_puniandes_q_3
+
+modelo2022_puniandes_q_4 <- lm( E4 ~ as.factor(q_puniandes_2022), data = gTablaDemografica2022)
+
+tidy_modelo2022_puniandes_q_4 <- tidy(modelo2022_puniandes_q_4)
+tidy_modelo2022_puniandes_q_4
+
+# Dummy Genero
+modelo2022_g <- lm(Ep ~ Sexo, data = gTablaDemografica2022)
+
+tidy_modelo2022_g <- tidy(modelo2022_g)
+tidy_modelo2022_g
+
+modelo2022_g_d <- lm(Ed ~ Sexo, data = gTablaDemografica2022)
+
+tidy_modelo2022_g_d <- tidy(modelo2022_g_d)
+tidy_modelo2022_g_d
+
+modelo2022_g_1 <- lm(E1 ~ Sexo, data = gTablaDemografica2022)
+
+tidy_modelo2022_g_1 <- tidy(modelo2022_g_1)
+tidy_modelo2022_g_1
+
+modelo2022_g_2 <- lm(E2 ~ Sexo, data = gTablaDemografica2022)
+
+tidy_modelo2022_g_2 <- tidy(modelo2022_g_2)
+tidy_modelo2022_g_2
+
+modelo2022_g_3 <- lm(E3 ~ Sexo, data = gTablaDemografica2022)
+
+tidy_modelo2022_g_3 <- tidy(modelo2022_g_3)
+tidy_modelo2022_g_3
+
+modelo2022_g_4 <- lm(E4 ~ Sexo, data = gTablaDemografica2022)
+
+tidy_modelo2022_g_4 <- tidy(modelo2022_g_4)
+tidy_modelo2022_g_4
+
+# Estrato
+
+# quantiles
+
+modelo2022_est <- lm(Ep ~ as.factor(estrato) , data = gTablaDemografica2022)
+
+tidy_modelo2022_est <- tidy(modelo2022_est)
+tidy_modelo2022_est
+
+
+modelo2022_est_d <- lm(Ed ~ as.factor(estrato) , data = gTablaDemografica2022)
+
+tidy_modelo2022_est_d <- tidy(modelo2022_est_d)
+tidy_modelo2022_est_d
+
+modelo2022_est_1 <- lm(E1 ~ as.factor(estrato) , data = gTablaDemografica2022)
+
+tidy_modelo2022_est_1 <- tidy(modelo2022_est_1)
+tidy_modelo2022_est_1
+
+modelo2022_est_2 <- lm(E2 ~ as.factor(estrato) , data = gTablaDemografica2022)
+
+tidy_modelo2022_est_2 <- tidy(modelo2022_est_2)
+tidy_modelo2022_est_2
+
+modelo2022_est_3 <- lm(E3 ~ as.factor(estrato) , data = gTablaDemografica2022)
+
+tidy_modelo2022_est_3 <- tidy(modelo2022_est_3)
+tidy_modelo2022_est_3
+
+modelo2022_est_4 <- lm(E4 ~ as.factor(estrato) , data = gTablaDemografica2022)
+
+tidy_modelo2022_est_4 <- tidy(modelo2022_est_4)
+tidy_modelo2022_est_4
+```
+
+# 2023
+```{r}
+# RLS
+
+# Dummy EsGrande
+modelo2023_EG <- lm(Ep ~ EsGrande, data = gTablaDemografica2023)
+
+tidy_modelo2023_EG <- tidy(modelo2023_EG)
+tidy_modelo2023_EG
+
+modelo2023_Ed <- lm(Ed ~ EsGrande, data = gTablaDemografica2023)
+
+tidy_modelo2023_Ed <- tidy(modelo2023_Ed)
+tidy_modelo2023_Ed
+
+modelo2023_E1 <- lm(E1 ~ EsGrande, data = gTablaDemografica2023)
+
+tidy_modelo2023_E1 <- tidy(modelo2023_E1)
+tidy_modelo2023_E1
+
+modelo2023_E2 <- lm(E2 ~ EsGrande, data = gTablaDemografica2023)
+
+tidy_modelo2023_E2 <- tidy(modelo2023_E2)
+tidy_modelo2023_E2
+
+modelo2023_E3 <- lm(E3 ~ EsGrande, data = gTablaDemografica2023)
+
+tidy_modelo2023_E3 <- tidy(modelo2023_E3)
+tidy_modelo2023_E3
+
+modelo2023_E4 <- lm(E4 ~ EsGrande, data = gTablaDemografica2023)
+
+tidy_modelo2023_E4 <- tidy(modelo2023_E4)
+tidy_modelo2023_E4
+
+# Puntaje Uniandes
+
+temp <- quantile(gTablaDemografica2023$puniandes, probs = c(0.25, 0.50, 0.75), na.rm = TRUE)
+
+gTablaDemografica2023$q_puniandes_2023 <- NA
+
+gTablaDemografica2023$q_puniandes_2023[gTablaDemografica2023$puniandes < temp[1]] <- 1
+gTablaDemografica2023$q_puniandes_2023[(gTablaDemografica2023$puniandes >= temp[1]) & (gTablaDemografica2023$puniandes < temp[2])]  <- 2
+gTablaDemografica2023$q_puniandes_2023[(gTablaDemografica2023$puniandes >= temp[2]) & (gTablaDemografica2023$puniandes < temp[3])]  <- 3
+gTablaDemografica2023$q_puniandes_2023[gTablaDemografica2023$puniandes >= temp[3]] <- 4
+
+# Dummy
+
+modelo2023_puniandes <- lm( Ep ~ d_puniandes_2023, data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes <- tidy(modelo2023_puniandes)
+tidy_modelo2023_puniandes
+
+modelo2023_puniandes_d <- lm( Ed ~ d_puniandes_2023, data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes_d <- tidy(modelo2023_puniandes_d)
+tidy_modelo2023_puniandes_d
+
+modelo2023_puniandes_1 <- lm( E1 ~ d_puniandes_2023, data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes_1 <- tidy(modelo2023_puniandes_1)
+tidy_modelo2023_puniandes_1
+
+modelo2023_puniandes_2 <- lm( E2 ~ d_puniandes_2023, data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes_2 <- tidy(modelo2023_puniandes_2)
+tidy_modelo2023_puniandes_2
+
+modelo2023_puniandes_3 <- lm( E3 ~ d_puniandes_2023, data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes_3 <- tidy(modelo2023_puniandes_3)
+tidy_modelo2023_puniandes_3
+
+modelo2023_puniandes_4 <- lm( E4 ~ d_puniandes_2023, data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes_4 <- tidy(modelo2023_puniandes_4)
+tidy_modelo2023_puniandes_4
+
+# quantiles
+
+modelo2023_puniandes_q_p <- lm( Ep ~ as.factor(q_puniandes_2023), data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes_q_p  <- summary(modelo2023_puniandes_q_p)
+tidy_modelo2023_puniandes_q_p
+
+modelo2023_puniandes_q_d <- lm( Ed ~ as.factor(q_puniandes_2023), data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes_q_d  <- tidy(modelo2023_puniandes_q_d)
+tidy_modelo2023_puniandes_q_d
+
+modelo2023_puniandes_q_1 <- lm( E1 ~ as.factor(q_puniandes_2023), data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes_q_1 <- tidy(modelo2023_puniandes_q_1)
+tidy_modelo2023_puniandes_q_1
+
+modelo2023_puniandes_q_2 <- lm( E2 ~ as.factor(q_puniandes_2023), data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes_q_2 <- tidy(modelo2023_puniandes_q_2)
+tidy_modelo2023_puniandes_q_2
+
+modelo2023_puniandes_q_3 <- lm( E3 ~ as.factor(q_puniandes_2023), data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes_q_3 <- tidy(modelo2023_puniandes_q_3)
+tidy_modelo2023_puniandes_q_3
+
+modelo2023_puniandes_q_4 <- lm( E4 ~ as.factor(q_puniandes_2023), data = gTablaDemografica2023)
+
+tidy_modelo2023_puniandes_q_4 <- tidy(modelo2023_puniandes_q_4)
+tidy_modelo2023_puniandes_q_4
+
+# Dummy Genero
+modelo2023_g <- lm(Ep ~ Sexo, data = gTablaDemografica2023)
+
+tidy_modelo2023_g <- tidy(modelo2023_g)
+tidy_modelo2023_g
+
+modelo2023_g_d <- lm(Ed ~ Sexo, data = gTablaDemografica2023)
+
+tidy_modelo2023_g_d <- tidy(modelo2023_g_d)
+tidy_modelo2023_g_d
+
+modelo2023_g_1 <- lm(E1 ~ Sexo, data = gTablaDemografica2023)
+
+tidy_modelo2023_g_1 <- tidy(modelo2023_g_1)
+tidy_modelo2023_g_1
+
+modelo2023_g_2 <- lm(E2 ~ Sexo, data = gTablaDemografica2023)
+
+tidy_modelo2023_g_2 <- tidy(modelo2023_g_2)
+tidy_modelo2023_g_2
+
+modelo2023_g_3 <- lm(E3 ~ Sexo, data = gTablaDemografica2023)
+
+tidy_modelo2023_g_3 <- tidy(modelo2023_g_3)
+tidy_modelo2023_g_3
+
+modelo2023_g_4 <- lm(E4 ~ Sexo, data = gTablaDemografica2023)
+
+tidy_modelo2023_g_4 <- tidy(modelo2023_g_4)
+tidy_modelo2023_g_4
+
+# Estrato
+
+# quantiles
+
+modelo2023_est <- lm(Ep ~ as.factor(estrato) , data = gTablaDemografica2023)
+
+tidy_modelo2023_est <- tidy(modelo2023_est)
+tidy_modelo2023_est
+
+
+modelo2023_est_d <- lm(Ed ~ as.factor(estrato) , data = gTablaDemografica2023)
+
+tidy_modelo2023_est_d <- tidy(modelo2023_est_d)
+tidy_modelo2023_est_d
+
+modelo2023_est_1 <- lm(E1 ~ as.factor(estrato) , data = gTablaDemografica2023)
+
+tidy_modelo2023_est_1 <- tidy(modelo2023_est_1)
+tidy_modelo2023_est_1
+
+modelo2023_est_2 <- lm(E2 ~ as.factor(estrato) , data = gTablaDemografica2023)
+
+tidy_modelo2023_est_2 <- tidy(modelo2023_est_2)
+tidy_modelo2023_est_2
+
+modelo2023_est_3 <- lm(E3 ~ as.factor(estrato) , data = gTablaDemografica2023)
+
+tidy_modelo2023_est_3 <- tidy(modelo2023_est_3)
+tidy_modelo2023_est_3
+
+modelo2023_est_4 <- lm(E4 ~ as.factor(estrato) , data = gTablaDemografica2023)
+
+tidy_modelo2023_est_4 <- tidy(modelo2023_est_4)
+tidy_modelo2023_est_4
+```

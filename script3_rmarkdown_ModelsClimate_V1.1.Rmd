@@ -1,0 +1,1614 @@
+---
+title: "Proyecto_Clima_Aula_Script2"
+author: "Nicolás Bello (cn.belloc@uniandes.edu.co)"
+date: "2025-07-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librerias
+
+Se cargan las siguientes librerias para la ejecución del código. Note que la libreria ditwhisker es posible que se deba instalar manualmente ya que al momento de la creación de este script fue dada de baja de la página CRAN
+
+```{r}
+library(RColorBrewer)
+library(dplyr)
+library(tibble)
+library(dotwhisker)
+library(ggplot2)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(foreign)
+library(haven)
+library(matrixStats)
+library(devtools)
+library(broom)
+library(ggplot2)
+library(latex2exp)
+library(dplyr)
+library(stringr)
+library(scales)
+library(stargazer)
+```
+
+## Lugares de trabajo y outputs
+
+Se definen los siguientes entornos de trabajo y capetas para visualizar outputs. Estas son las rutas que debe modificar para ejecutar el código.
+
+
+```{r}
+# --- Find the directory of this script ---
+get_script_path <- function() {
+  # If run with Rscript
+  args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- "--file="
+  path_idx <- grep(file_arg, args)
+  if (length(path_idx) > 0) {
+    return(normalizePath(sub(file_arg, "", args[path_idx])))
+  }
+  
+  # If sourced in RStudio
+  if (requireNamespace("rstudioapi", quietly = TRUE) &&
+      rstudioapi::isAvailable()) {
+    return(rstudioapi::getSourceEditorContext()$path)
+  }
+  
+  # If sourced in plain R console
+  if (!is.null(sys.frames()[[1]]$ofile)) {
+    return(normalizePath(sys.frames()[[1]]$ofile))
+  }
+  
+  # Fallback: working directory
+  return(normalizePath("."))
+}
+
+script_path <- get_script_path()
+script_dir  <- dirname(script_path)
+
+raw_data <- file.path(script_dir, "../raw data")
+transformed_data <- file.path(script_dir, "../transformed data")
+```
+
+## Carga de datos
+```{r}
+# Traemos tablas demográficas creadas anteriormente
+setwd(transformed_data)
+gTablaDemografica2022 <- read.csv("gTablaDemografica2022.csv")
+gTablaDemografica2023 <- read.csv("gTablaDemografica2023.csv")
+correos <- read.csv("correos.csv")
+info_adicional <- read.csv("info_adicional.csv")
+```
+
+## Clima de Aula
+
+# Carga y limpieza de datos
+```{r}
+setwd(raw_data)
+## Clima aula
+
+clima2022_2 <- read.csv("Clima3.csv", stringsAsFactors = F,
+                            encoding = "UTF-8")
+
+# Quitar observaciones donde no hay ni codigo ni correo (no identificables)
+empty_rows <- clima2022_2[ clima2022_2$Q50 == "" & clima2022_2$Q51 == "", ]
+clima2022_2 <- clima2022_2[!(rownames(clima2022_2) %in% rownames(empty_rows)), ]
+
+# Renombrar variables de interés
+clima2022_2 <- clima2022_2 %>%
+  rename(fecha_finalizacion = EndDate, ip=IPAddress, progreso = Progress,
+         duracion_seg = Duration..in.seconds., finalizado = Finished,
+         id_respuesta = ResponseId, g_latitud = LocationLatitude,
+         g_longitud = LocationLongitude, canal_distribucion = DistributionChannel,
+         codigo = Q50, correo = Q51)
+
+# Eliminar variables de no interés
+clima2022_2 <- clima2022_2 %>%
+  select(-StartDate, -Status, -RecordedDate, -RecipientLastName,
+         -RecipientFirstName, -RecipientEmail, -ExternalReference, -UserLanguage)
+
+# Eliminar las dos primeras filas. No dan info. relevante
+clima2022_2 <- clima2022_2[-c(1:2),]
+
+# Formato hora fecha_finalizacion
+clima2022_2$fecha_finalizacion <- ymd_hms(clima2022_2$fecha_finalizacion)
+
+# Casos partículares de typos
+clima2022_2$codigo <- ifelse(clima2022_2$codigo == "20222105", "202221050", clima2022_2$codigo)
+clima2022_2$codigo <- ifelse(clima2022_2$codigo == "20220803", "202220803", clima2022_2$codigo)
+clima2022_2$codigo <- ifelse(clima2022_2$codigo == "20311522", "202311522", clima2022_2$codigo)
+
+# Consideraciones adicionales de limpieza
+clima2022_2 <- subset(clima2022_2, grepl("^20", codigo)) # Borrar pruebas
+clima2022_2$codigo <- as.integer(clima2022_2$codigo) # codigo de str a int
+clima2022_2 <- left_join(clima2022_2, correos, by = c("codigo" = "Codigo")) # reemplazar correcto formato de correos
+clima2022_2 <- clima2022_2 %>%
+  select(-correo)
+clima2022_2 <- clima2022_2 %>%
+  select(Correo, everything())
+clima2022_2 <- clima2022_2 %>%
+  select(codigo, everything())
+
+# Crear variable de ola
+clima2022_2$ola <- ifelse(clima2022_2$fecha_finalizacion
+                                     <= as.Date("2022-09-30"), 1, 2)
+clima2022_2 <- clima2022_2[, c("codigo", "ola", setdiff(names(clima2022_2),
+                                                        c("codigo", "ola")))]
+clima2022_2 <- clima2022_2[order(clima2022_2$codigo, clima2022_2$ola), ]
+
+# Un valor único para ola (se toma la última respuesta)
+clima2022_2 <- clima2022_2 %>%
+  group_by(codigo, ola) %>%
+  mutate(id = row_number()) %>%
+  ungroup()
+clima2022_2 <- clima2022_2[, c("codigo", "id", "ola",
+                               setdiff(names(clima2022_2), c("codigo", "id", "ola")))]
+
+clima2022_2_f <- clima2022_2 %>% # Se crea la versión final de la base
+  group_by(codigo) %>%
+  slice_max(order_by = id) %>%
+  ungroup()
+
+otras_respuestas_clima <- clima2022_2 %>%
+  anti_join(clima2022_2_f, by = c("codigo", "ola"))
+
+# Eliminar id
+clima2022_2_f <- clima2022_2_f %>%
+  select(-id)
+
+# Eliminar si no hay ni una respuesta de la Q1 a Q49 no vacía (progreso <= 4)
+clima2022_2_f$progreso <- as.integer(clima2022_2_f$progreso)
+clima2022_2_f <- subset(clima2022_2_f, clima2022_2_f$progreso > 4)
+
+# Agregar profesores para identificar sección
+# Pegar  nombres para identificar género manualmente (no funciona genero())
+
+clima2022_2_f <- left_join(clima2022_2_f, info_adicional, by = c("codigo" = "Codigo"))
+
+# Cambiar todos los valores por numérico
+
+# Especificar las columnas a transformar
+columnas_transformar <- paste0("Q", 1:49)
+
+# Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+clima2022_2_f <- clima2022_2_f %>%
+  mutate_at(
+    vars(columnas_transformar),
+    ~ case_when(
+      . == "Totalmente en Desacuerdo" ~ 1,
+      . == "En Desacuerdo" ~ 2,
+      . == "De Acuerdo" ~ 3,
+      . == "Totalmente De Acuerdo" ~ 4,
+      TRUE ~ NA_integer_
+    )
+  )
+
+#Invertir valores para la inferencia "positiva"
+columnas_transformar_inv <- c("Q2", "Q3", "Q6", "Q7", "Q11", "Q13", "Q16", "Q19", "Q24", "Q25", "Q26", "Q29",
+                          "Q30", "Q31", "Q32", "Q34", "Q36", "Q40", "Q42", "Q43", "Q44", "Q45", "Q48", "Q49")
+
+clima2022_2_f <- clima2022_2_f %>%
+  mutate_at(
+    vars(columnas_transformar_inv),
+    ~ case_when(
+      . == 1 ~ 4,
+      . == 2 ~ 3,
+      . == 3 ~ 2,
+      . == 4 ~ 1,
+      TRUE ~ NA_integer_
+    )
+  )
+
+clima2022_2_f <- clima2022_2_f %>%
+  select(semestre, ola, codigo, Correo, Nombres, seccion, grupo, fecha_finalizacion,
+         ip, progreso, duracion_seg, finalizado, id_respuesta,
+         g_latitud, g_longitud, canal_distribucion,everything()) %>%
+  select(-Q59,-Q60,-Q56)
+
+clima2022_2_f <- clima2022_2_f[order(clima2022_2_f$semestre, clima2022_2_f$codigo,clima2022_2_f$ola ), ]
+```
+
+# Modelos de Clima de Aula (output en Txt para overleaf)
+```{r}
+
+clima2022_2_f$semestre <- ifelse(clima2022_2_f$semestre == "2022_2", "202220", "202310")
+clima2022_2_f$cod_cruce <- paste0(clima2022_2_f$codigo, clima2022_2_f$semestre)
+
+clima2022_2_f_join <- clima2022_2_f %>% 
+  select(cod_cruce, starts_with("Q"))
+
+gTablaDemografica2022_clima <- left_join(gTablaDemografica2022, clima2022_2_f_join, by = "cod_cruce")
+
+for (i in 1:49) {
+  response_var <- paste0("Q", i)
+  model_name <- paste0("regEG_q", i)
+  model <- lm(as.formula(paste(response_var, "~ EsGrande")), data = gTablaDemografica2022_clima)
+  assign(model_name, model)
+}
+
+# Crear una lista de modelos de regresión
+allRegs <- list()
+
+for (i in 1:49) {
+  model_name <- paste0("regEG_q", i)
+  allRegs[[model_name]] <- get(model_name)
+}
+
+# Calcular intervalos de confianza y errores estándar
+confIntsPd <- lapply(allRegs, function(model) {
+  confint(model)
+})
+
+AVarsPd <- lapply(allRegs, function(model) {
+  sqrt(diag(vcov(model)))
+})
+
+# Crear un tibble con los coeficientes y sus intervalos de confianza
+confs <- tibble()
+
+for (name in names(allRegs)) {
+  reg <- allRegs[[name]]
+  netName <- name
+  year <- "2022"  # Asumiendo que el año es 2022, ajustar si es necesario
+  
+  # Obtener los coeficientes y sus intervalos de confianza
+  model_confs <- tidy(reg) %>%
+    mutate(
+      conf.low = confIntsPd[[name]][, 1],
+      conf.high = confIntsPd[[name]][, 2],
+      model = name,
+      net.name = netName,
+      year.obs = year
+    )
+  
+  confs <- bind_rows(confs, model_confs)
+}
+
+# Crear los gráficos
+
+setwd(plot.dir)
+for (name in unique(confs$model)) {
+  temp <- confs %>% filter(model == name) %>% select(term, estimate, std.error, conf.low, conf.high)
+  plot1 <- dwplot(temp, ci = 0.95) +    
+    theme_bw(base_size = 10) + 
+    theme(legend.position = "none") + 
+    xlab("Coefficient Estimate") + ylab("") +
+    ggtitle(name) +
+    geom_vline(xintercept = 0, colour = "grey60", linetype = 2)
+  
+  file <- paste0("SMsample_", name, ".png")
+  ggsave(filename = file, plot = plot1, device = "png")
+}
+
+## Plot combinado
+
+
+# Extraer los coeficientes y sus intervalos de confianza para cada modelo
+coefs <- lapply(allRegs, function(model) {
+  coef_summary <- summary(model)
+  coef_data <- coef_summary$coefficients
+  data.frame(
+    term = rownames(coef_data),
+    estimate = coef_data[, 1],
+    conf.low = coef_data[, 1] - 1.96 * coef_data[, 2],  # 95% confidence interval
+    conf.high = coef_data[, 1] + 1.96 * coef_data[, 2]
+  )
+})
+
+# Combinar los coeficientes en un solo data frame
+coefs_combined <- do.call(rbind, coefs)
+coefs_combined <- subset(coefs_combined,coefs_combined$term == "EsGrande")
+coefs_combined <- tibble::rowid_to_column(coefs_combined, "model")
+
+
+
+
+# Definir una paleta de colores con suficientes colores para 49 coeficientes en grupos de 8
+color_palette <- brewer.pal(n = 7, name = "Dark2")
+
+# Repetir cada color 8 veces para cubrir todos los coeficientes
+color_palette_repeated <- rep(color_palette, each = 7)
+
+# Asignar colores a cada coeficiente basado en el vector de colores repetidos
+coefs_combined <- coefs_combined %>%
+  mutate(
+    coef_number = as.numeric(gsub("regEG_q", "", model)),  # Extraer el número del coeficiente
+    color_index = (coef_number - 1) %/% 8 + 1,  # Crear índice de grupo de color
+    color = color_palette_repeated[color_index]  # Asignar el color correspondiente
+  ) %>%
+  arrange(coef_number)  # Ordenar por el número del coeficiente
+
+# Convertir 'model' a un factor con niveles ordenados por 'coef_number'
+coefs_combined <- coefs_combined %>%
+  mutate(model = factor(model, levels = unique(coefs_combined$model[order(coef_number)])))
+
+# Definir los nombres de las secciones
+section_labels <- c(
+  "Instructor and Student Relationship",
+  "Class Participation and Dynamics",
+  "Clarity and Organization of Class Work",
+  "Innovation and Teaching Methods",
+  "Student Knowledge and Relationships",
+  "Student Interest and Motivation",
+  "Time Management and Class Structure"
+)
+
+# Crear el gráfico con dotwhisker y aplicar colores por coeficiente
+plot_combined <- dwplot(
+  coefs_combined,
+  model_name = "model",
+  estimate = "estimate", 
+  conf.low = "conf.low", 
+  conf.high = "conf.high"
+) +
+  theme_bw(base_size = 20) +  
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  xlab("Coefficient Estimate") + ylab("") +
+  ggtitle("Combined Coefficient Plot") +
+  scale_y_discrete(expand = c(0, 0.1)) +
+  aes(color = color) +  # Aplicar colores a los puntos según la columna 'color'
+  scale_color_manual(values = color_palette_repeated) +
+  guides(color = "none")
+
+# Guardar el gráfico con un tamaño más ancho
+file <- "plot_combined1.png"
+ggsave(filename = file, plot = plot_combined, device = "png", width = 14, height = 15)
+
+# Crear un nuevo dataframe donde vamos a insertar filas "vacías" entre los grupos
+coefs_with_spacing <- coefs_combined
+
+# Definir la cantidad de coeficientes por sección
+coef_per_section <- 7
+
+# Crear una fila vacía con las mismas columnas que coefs_combined
+space_row <- coefs_combined[1, ]
+space_row[] <- NA  # Asignar NA a todas las columnas para crear la "fila vacía"
+
+# Crear un dataframe vacío para ir acumulando los coeficientes con espacios
+coefs_with_spacing_final <- data.frame()
+
+# Insertar filas vacías después de cada 7 coeficientes
+for (i in seq(1, nrow(coefs_combined), by = coef_per_section)) {
+  # Tomar los próximos 7 coeficientes
+  group <- coefs_with_spacing[i:(i + coef_per_section - 1), ]
+  
+  # Añadir esos coeficientes al dataframe final
+  coefs_with_spacing_final <- rbind(coefs_with_spacing_final, group)
+  
+  # Si no es el último grupo, añadir una fila vacía
+  if (i + coef_per_section - 1 < nrow(coefs_combined)) {
+    coefs_with_spacing_final <- rbind(coefs_with_spacing_final, space_row)
+  }
+}
+
+# Convertir 'model' a factor, con los espacios incluidos
+coefs_with_spacing_final <- coefs_with_spacing_final %>%
+  mutate(model = factor(model, levels = unique(coefs_combined$model)))
+
+# Crear el gráfico con dotwhisker, aplicando el factor modificado en el eje y
+plot_combined <- dwplot(
+  coefs_with_spacing_final,
+  model_name = "model",
+  estimate = "estimate", 
+  conf.low = "conf.low", 
+  conf.high = "conf.high"
+) +
+  theme_bw(base_size = 20) +  
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  xlab("Coefficient Estimate") + ylab("") +
+  ggtitle("Combined Coefficient Plot") +
+  scale_y_discrete(expand = c(0, 0.1)) +  # Mantener márgenes en el eje y
+  aes(color = color) +  # Aplicar colores a los puntos según la columna 'color'
+  scale_color_manual(values = color_palette_repeated) +
+  guides(color = "none")
+
+# Guardar el gráfico con un tamaño más ancho
+file <- "plot_combined_with_spacing.png"
+ggsave(filename = file, plot = plot_combined, device = "png", width = 14, height = 15)
+
+# Crear el gráfico con dotwhisker - V2
+
+plot_combined <- dwplot(allRegs,
+                        vline = geom_vline(
+                          xintercept = 0,
+                          colour = "grey60",
+                          linetype = 2)
+) +
+  theme_bw(base_size = 4) + 
+  xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0,
+             colour = "grey60",
+             linetype = 2) +
+  ggtitle("Combined coefficient plot") +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = c(0.007, 0.01),
+    legend.justification = c(0, 0),
+    legend.background = element_rect(colour = "grey80"),
+    legend.title = element_blank()
+  ) 
+
+# Guardar el gráfico
+file <- "plot_combined4.png"
+ggsave(filename = file, plot = plot_combined, device = "png")
+
+
+
+# Generar las tablas LaTeX con stargazer en grupos de 5
+for (j in 0:9) {
+  start <- j * 5 + 1
+  end <- min((j + 1) * 5, 49)
+  subset_models <- allRegs[paste0("regEG_q", start:end)]
+  
+  stargazer(subset_models, 
+            type = "latex", 
+            title = paste0("Treatment effect on question (Q", start, " to Q", end, ") answer"), 
+            dep.var.labels = "Question", 
+            covariate.labels = "treatment", 
+            out = paste0("regression_table_", start, "_", end, ".tex"), 
+            model.names = FALSE, 
+            star.cutoffs = c(0.1, 0.05, 0.01), 
+            column.labels = paste0("Q", start:end), 
+            keep.stat = c("n", "rsq"))
+}
+```
+
+CUCEI scores & regressions (dimension-level, baseline OLS) -------------
+ Requires: clima2022_2_f already cleaned and Q1..Q49 recoded 1–4 with negatives inverted.
+Uses: gTablaDemografica2022, gTablaDemografica2023 with EsGrande and (cod_cruce or codigo/semestre)
+
+```{r CUCEI }
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(broom)
+  library(purrr)
+  library(stargazer)
+  library(rlang)
+})
+
+# 0) Map CUCEI items → 7 dimensions
+cucei_map <- tibble::tribble(
+  ~Q,   ~dim_code, ~dim_label,
+  "Q1","P","Personalización","Q8","P","Personalización","Q15","P","Personalización",
+  "Q22","P","Personalización","Q29","P","Personalización","Q36","P","Personalización","Q43","P","Personalización",
+  "Q2","I","Participación","Q9","I","Participación","Q16","I","Participación",
+  "Q23","I","Participación","Q30","I","Participación","Q37","I","Participación","Q44","I","Participación",
+  "Q3","SC","Cohesión","Q10","SC","Cohesión","Q17","SC","Cohesión",
+  "Q24","SC","Cohesión","Q31","SC","Cohesión","Q38","SC","Cohesión","Q45","SC","Cohesión",
+  "Q4","S","Satisfacción","Q11","S","Satisfacción","Q18","S","Satisfacción",
+  "Q25","S","Satisfacción","Q32","S","Satisfacción","Q39","S","Satisfacción","Q46","S","Satisfacción",
+  "Q5","TO","Orientación a la tarea","Q12","TO","Orientación a la tarea","Q19","TO","Orientación a la tarea",
+  "Q26","TO","Orientación a la tarea","Q33","TO","Orientación a la tarea","Q40","TO","Orientación a la tarea","Q47","TO","Orientación a la tarea",
+  "Q6","Inn","Innovación","Q13","Inn","Innovación","Q20","Inn","Innovación",
+  "Q27","Inn","Innovación","Q34","Inn","Innovación","Q41","Inn","Innovación","Q48","Inn","Innovación",
+  "Q7","Ind","Individualización","Q14","Ind","Individualización","Q21","Ind","Individualización",
+  "Q28","Ind","Individualización","Q35","Ind","Individualización","Q42","Ind","Individualización","Q49","Ind","Individualización"
+)
+
+# 1) Build cod_cruce in clima
+clima2022_2_f <- clima2022_2_f %>%
+  mutate(
+    codigo       = as.character(codigo),
+    semestre_std = if_else(semestre == "2022_2", "202220", "202310"),
+    cod_cruce    = paste0(codigo, semestre_std)
+  )
+
+# 2) Compute CUCEI dimension scores (means; require ≥5 responses)
+qs <- paste0("Q", 1:49)
+cucei_scores_long <- clima2022_2_f %>%
+  select(cod_cruce, all_of(qs)) %>%
+  pivot_longer(cols = all_of(qs), names_to = "Q", values_to = "score") %>%
+  left_join(cucei_map, by = "Q") %>%
+  group_by(cod_cruce, dim_code, dim_label) %>%
+  summarise(score_dim = mean(score, na.rm = TRUE),
+            n_items   = sum(!is.na(score)),
+            .groups   = "drop") %>%
+  filter(n_items >= 5)
+
+cucei_scores_wide <- cucei_scores_long %>%
+  select(cod_cruce, dim_code, score_dim) %>%
+  pivot_wider(names_from = dim_code, values_from = score_dim) %>%
+  mutate(cod_cruce = as.character(cod_cruce))
+
+# 3) Harmonize cod_cruce across demography tables
+std_demog <- function(df, semester_code = NULL) {
+  if ("cod_cruce" %in% names(df)) {
+    return(df %>% mutate(cod_cruce = as.character(cod_cruce)))
+  }
+  if ("codigo" %in% names(df) && "semestre" %in% names(df)) {
+    df <- df %>% mutate(codigo = as.character(codigo))
+    if (!is.null(semester_code)) df <- df %>% mutate(semestre = semester_code)
+    return(df %>% mutate(cod_cruce = paste0(codigo, semestre)))
+  }
+  if ("codigo" %in% names(df) && !is.null(semester_code)) {
+    return(df %>% mutate(codigo = as.character(codigo),
+                         cod_cruce = paste0(codigo, semester_code)))
+  }
+  stop("Demography table lacks 'cod_cruce' and also lacks enough fields to build it.")
+}
+
+gTablaDemografica2022_std <- std_demog(gTablaDemografica2022, "202220")
+gTablaDemografica2023_std <- std_demog(gTablaDemografica2023, "202310")
+
+gTablaDemografica_ALL <- bind_rows(
+  gTablaDemografica2022_std %>% select(cod_cruce, EsGrande),
+  gTablaDemografica2023_std %>% select(cod_cruce, EsGrande)
+) %>%
+  mutate(cod_cruce = as.character(cod_cruce)) %>%
+  distinct(cod_cruce, .keep_all = TRUE)
+
+cat("Intersección cod_cruce (demografía vs CUCEI): ",
+    length(intersect(gTablaDemografica_ALL$cod_cruce, cucei_scores_wide$cod_cruce)), "\n")
+
+# 4) Join
+cucei_analyt <- gTablaDemografica_ALL %>%
+  left_join(cucei_scores_wide, by = "cod_cruce")
+
+# 5) Run 7 OLS regressions: dimension ~ EsGrande
+dim_vars <- c("P","I","SC","S","TO","Inn","Ind")
+dim_labels <- c(P="Personalización", I="Participación", SC="Cohesión",
+                S="Satisfacción", TO="Orientación a la tarea",
+                Inn="Innovación", Ind="Individualización")
+
+analyt_ready <- cucei_analyt %>%
+  select(EsGrande, all_of(dim_vars)) %>%
+  filter(!is.na(EsGrande))
+
+fit_one <- function(v) {
+  df <- analyt_ready %>% filter(!is.na(.data[[v]]))
+  if (nrow(df) < 5) return(NULL)
+  lm(stats::as.formula(paste0(v, " ~ EsGrande")), data = df)
+}
+
+dim_models <- set_names(lapply(dim_vars, fit_one), dim_vars)
+dim_models <- dim_models[!vapply(dim_models, is.null, logical(1))]
+
+# 6) Summarize
+dim_results <- imap_dfr(dim_models, function(m, nm) {
+  tidy(m, conf.int = TRUE) %>%
+    filter(term == "EsGrande") %>%
+    mutate(dimension = dim_labels[[nm]]) %>%
+    select(dimension, estimate, std.error, conf.low, conf.high, p.value)
+}) %>% arrange(dimension)
+
+print(dim_results)
+
+# 7) Compute and add baseline means
+fmt3 <- function(x) ifelse(is.na(x), "", sprintf("%.3f", x))
+overall_means <- sapply(names(dim_models), function(v)
+  mean(analyt_ready[[v]], na.rm = TRUE))
+control_means <- sapply(names(dim_models), function(v)
+  mean(analyt_ready[[v]][analyt_ready$EsGrande == 0], na.rm = TRUE))
+
+add_lines <- list(
+  c("Mean (overall)",    unname(fmt3(overall_means))),
+  c("Mean (control, EsGrande=0)", unname(fmt3(control_means)))
+)
+
+# 8) LaTeX output: one column per dimension
+use_labels <- unname(dim_labels[names(dim_models)])
+stargazer::stargazer(
+  dim_models,
+  type = "latex",
+  title = "Efecto de EsGrande sobre puntajes CUCEI por dimensión",
+  dep.var.labels.include = FALSE,
+  dep.var.caption = "",
+  column.labels   = use_labels,
+  column.separate = rep(1, length(dim_models)),
+  model.names = FALSE,
+  covariate.labels = c("EsGrande"),
+  star.cutoffs = c(0.1, 0.05, 0.01),
+  keep.stat = c("n", "rsq"),
+  add.lines = add_lines,
+  out = "cucei_dim_regressions.tex"
+)
+```
+```{r CUCEINew }
+# --- FE + clustered SEs with Profesor normalization and semester-aware group --
+suppressPackageStartupMessages({
+  library(dplyr); library(tidyr); library(stringr); library(stringi)
+  library(fixest); library(broom); library(purrr)
+  library(modelsummary)
+})
+
+# Force modelsummary to use plain LaTeX (no tinytable)
+options(modelsummary_factory_latex = "latex_tabular")
+options(modelsummary_format_numeric_latex = "plain")
+
+# 1) Normalizer for instructor names
+normalize_profesor <- function(x) {
+  x %>%
+    as.character() %>% str_trim() %>% str_squish() %>%
+    stringi::stri_trans_general("Latin-ASCII") %>% toupper() %>%
+    { ifelse(str_detect(., ","), {
+      parts <- str_split_fixed(., ",", 2)
+      paste(str_trim(parts[,2]), str_trim(parts[,1]))
+    }, .) } %>% str_squish()
+}
+
+# 2) Standardize/build cod_cruce in demography + attach Profesor_std and semestre
+std_demog <- function(df, semester_code) {
+  out <- df
+  if (!"cod_cruce" %in% names(out)) {
+    if (!"codigo" %in% names(out)) stop("Demography table lacks 'cod_cruce' and 'codigo'.")
+    out <- out %>%
+      mutate(codigo = as.character(codigo),
+             semestre = semester_code,
+             cod_cruce = paste0(codigo, semestre))
+  }
+  if (!"semestre" %in% names(out)) out <- out %>% mutate(semestre = semester_code)
+  out %>%
+    mutate(
+      cod_cruce    = as.character(cod_cruce),
+      semestre     = as.character(semestre),
+      Profesor_std = if ("Profesor" %in% names(.)) normalize_profesor(Profesor) else NA_character_
+    ) %>%
+    select(cod_cruce, EsGrande, Profesor_std, semestre) %>%
+    distinct(cod_cruce, .keep_all = TRUE)
+}
+
+# 3) Build standardized demography (assign semester by source)
+gTablaDemografica2022_std2 <- std_demog(gTablaDemografica2022, "202220")
+gTablaDemografica2023_std2 <- std_demog(gTablaDemografica2023, "202310")
+
+gTablaDemografica_ALL <- bind_rows(gTablaDemografica2022_std2, gTablaDemografica2023_std2) %>%
+  distinct(cod_cruce, .keep_all = TRUE)
+
+# 4) Bring in section id from CLIMA (semester-aware). Bind whatever exists.
+.clima_sources <- list(
+  if (exists("clima2022_2_f")) clima2022_2_f else NULL,
+  if (exists("clima2023_1_f")) clima2023_1_f else NULL,
+  if (exists("clima2023_2_f")) clima2023_2_f else NULL
+) %>% purrr::compact()
+
+meta_cluster <- bind_rows(.clima_sources) %>%
+  transmute(cod_cruce = as.character(cod_cruce),
+            grupo     = as.character(grupo)) %>%
+  distinct(cod_cruce, .keep_all = TRUE)
+
+# 5) Final analytic frame: demography + CUCEI scores + cluster id + build grupo_id
+cucei_analyt <- gTablaDemografica_ALL %>%
+  left_join(cucei_scores_wide, by = "cod_cruce") %>%
+  left_join(meta_cluster,        by = "cod_cruce") %>%
+  mutate(
+    grupo_id = ifelse(!is.na(grupo), paste0(semestre, "::", grupo), NA_character_),
+    # ensure EsGrande is numeric 0/1
+    EsGrande = dplyr::case_when(
+      is.logical(EsGrande) ~ as.numeric(EsGrande),
+      is.factor(EsGrande)  ~ suppressWarnings(as.numeric(as.character(EsGrande))),
+      TRUE                 ~ suppressWarnings(as.numeric(EsGrande))
+    )
+  )
+
+cat("Intersección cod_cruce (demografía vs CUCEI): ",
+    length(intersect(gTablaDemografica_ALL$cod_cruce, cucei_scores_wide$cod_cruce)), "\n")
+
+# ---------- FE + clustered SEs: build the formula with a pipe ----------------
+dim_vars   <- c("P","I","SC","S","TO","Inn","Ind")
+dim_labels <- c(P="Personalización", I="Participación", SC="Cohesión",
+                S="Satisfacción", TO="Orientación a la tarea",
+                Inn="Innovación", Ind="Individualización")
+
+have_prof  <- "Profesor_std" %in% names(cucei_analyt) && any(!is.na(cucei_analyt$Profesor_std))
+have_sem   <- "semestre"     %in% names(cucei_analyt) && any(!is.na(cucei_analyt$semestre))
+have_grupo <- "grupo_id"     %in% names(cucei_analyt) && any(!is.na(cucei_analyt$grupo_id))
+
+fe_str <- ""
+if (have_prof && have_sem) {
+  fe_str <- " | Profesor_std + semestre"
+} else if (have_prof) {
+  fe_str <- " | Profesor_std"
+} else if (have_sem) {
+  fe_str <- " | semestre"
+}
+
+# --- Choose a cluster var that has >= 2 clusters in the model's df -----------
+choose_cluster <- function(df) {
+  cand <- c("grupo_id", "Profesor_std", "semestre")
+  for (v in cand) {
+    if (v %in% names(df)) {
+      vc <- df[[v]]
+      if (!all(is.na(vc)) && dplyr::n_distinct(vc[!is.na(vc)]) >= 2L) {
+        return(as.formula(paste0("~ ", v)))
+      }
+    }
+  }
+  ~ cod_cruce  # fallback
+}
+
+fit_feols <- function(v) {
+  df <- cucei_analyt %>% dplyr::filter(!is.na(.data[[v]]), !is.na(EsGrande))
+  if (nrow(df) < 5) return(NULL)
+  fml <- as.formula(paste0(v, " ~ EsGrande", fe_str))
+  cl  <- choose_cluster(df)
+  fixest::feols(fml, data = df, cluster = cl)
+}
+
+dim_models <- rlang::set_names(lapply(dim_vars, fit_feols), dim_vars)
+dim_models <- dim_models[!vapply(dim_models, is.null, logical(1))]
+
+# 6) Console summary (beta for EsGrande, robust to EsGrandeTRUE)
+dim_results <- purrr::imap_dfr(dim_models, function(m, nm) {
+  broom::tidy(m, conf.int = TRUE) %>%
+    dplyr::filter(grepl("^EsGrande", term)) %>%
+    dplyr::mutate(dimension = dim_labels[[nm]]) %>%
+    dplyr::select(dimension, estimate, std.error, conf.low, conf.high, p.value)
+}) %>% dplyr::arrange(dimension)
+print(dim_results)
+
+# --- Means (overall & control) for context ----------------------------------
+fmt3 <- function(x) ifelse(is.na(x), "", sprintf("%.3f", x))
+overall_means <- sapply(names(dim_models), function(v) mean(cucei_analyt[[v]], na.rm = TRUE))
+control_means <- sapply(names(dim_models), function(v)
+  mean(cucei_analyt[[v]][cucei_analyt$EsGrande == 0], na.rm = TRUE))
+
+# Column labels (match order of dim_models)
+use_labels <- unname(dim_labels[names(dim_models)])
+
+# Build add_rows for modelsummary
+add_rows_df <- data.frame(
+  term = c("Mean (overall)", "Mean (control, EsGrande=0)"),
+  rbind(unname(fmt3(overall_means[names(dim_models)])),
+        unname(fmt3(control_means[names(dim_models)]))),
+  check.names = FALSE, stringsAsFactors = FALSE
+)
+colnames(add_rows_df) <- c("term", use_labels)
+
+# GOF map (3 cols; modelsummary drops missing gracefully)
+gof_map <- data.frame(
+  raw   = c("nobs", "r.squared", "r2_within"),
+  clean = c("Observations","R$^2$","$R^2_{within}$"),
+  fmt   = c(0,3,3),
+  stringsAsFactors = FALSE
+)
+
+# ---- Quick preview in console (no export) ----
+models_named <- setNames(dim_models, use_labels)
+
+fixest::etable(
+  models_named,
+  keep        = "^EsGrande",
+  order       = "EsGrande",
+  dict        = c("EsGrande" = "EsGrande"),
+  se.below    = TRUE,
+  signif.code = c("*"=0.10, "**"=0.05, "***"=0.01),
+  fitstat     = ~ n + r2,
+  tex         = FALSE
+)
+
+# ===== Custom LaTeX table with the same structure as your first OLS table =====
+# --- Robust helper functions --------------------------------------------------
+get_esg <- function(m) {
+  tt <- broom::tidy(m)
+  row <- tt[grepl("^EsGrande", tt$term), , drop = FALSE]
+  if (nrow(row) == 0) return(c(est = NA, se = NA, p = NA))
+  c(est = row$estimate[1], se = row$std.error[1], p = row$p.value[1])
+}
+
+get_n <- function(m) {
+  val <- NA_integer_
+  try(val <- as.integer(stats::nobs(m)), silent = TRUE)
+  val
+}
+
+# Robust R^2 getter for fixest FE models
+# Robust getter for fixest FE R² (returns within R² if available)
+# Always return a single numeric R^2 (prefer within R^2 for FE)
+get_r2 <- function(m) {
+  pick_one <- function(x) {
+    if (is.null(x)) return(NA_real_)
+    x <- suppressWarnings(as.numeric(x))
+    if (length(x) > 1L) {
+      # if named and contains "r2", take that; else take first
+      nm <- names(x)
+      if (!is.null(nm) && "r2" %in% nm) return(x[which(nm == "r2")[1]])
+      return(x[1])
+    }
+    x
+  }
+
+  # 1) Prefer within R^2
+  val <- tryCatch(pick_one(fixest::r2(m, type = "within")), error = function(e) NA_real_)
+
+  # 2) Fallback: overall R^2 (may return vector; pick_one handles it)
+  if (!is.finite(val)) {
+    val <- tryCatch(pick_one(fixest::r2(m)), error = function(e) NA_real_)
+  }
+
+  # 3) Fallback: fitstat containers (varies by fixest version)
+  if (!is.finite(val)) {
+    val <- tryCatch({
+      fs <- suppressWarnings(fixest::fitstat(m, type = "all"))
+      out <- NA_real_
+      # try direct elements
+      for (k in c("r2_within", "wr2", "r2")) {
+        if (!is.null(fs[[k]])) { out <- pick_one(fs[[k]]); break }
+      }
+      # try nested $stat
+      if (!is.finite(out) && !is.null(fs$stat)) {
+        for (k in c("r2_within", "wr2", "r2")) {
+          if (!is.null(fs$stat[[k]])) { out <- pick_one(fs$stat[[k]]); break }
+        }
+      }
+      # try table row
+      if (!is.finite(out) && !is.null(fs$table)) {
+        tb <- fs$table
+        for (k in c("r2_within", "wr2", "r2")) {
+          if (k %in% rownames(tb) && "value" %in% colnames(tb)) {
+            out <- suppressWarnings(as.numeric(tb[k, "value"])); break
+          }
+        }
+      }
+      out
+    }, error = function(e) NA_real_)
+  }
+
+  # 4) Last resort (lm-style)
+  if (!is.finite(val)) {
+    val <- tryCatch({
+      sm <- suppressWarnings(summary(m))
+      if (!is.null(sm$r.squared)) as.numeric(sm$r.squared) else NA_real_
+    }, error = function(e) NA_real_)
+  }
+
+  # Ensure scalar
+  if (length(val) != 1L) val <- val[1]
+  val
+}
+
+
+
+
+ES <- lapply(dim_models, function(m){
+  tt <- broom::tidy(m)
+  row <- tt[grepl("^EsGrande", tt$term), , drop = FALSE]
+  if (nrow(row) == 0) return(c(est=NA,se=NA,p=NA))
+  c(est=row$estimate[1], se=row$std.error[1], p=row$p.value[1])
+})
+est <- sapply(ES, `[[`, "est")
+se  <- sapply(ES, `[[`, "se")
+pv  <- sapply(ES, `[[`, "p")
+NN  <- sapply(dim_models, function(m) as.integer(tryCatch(stats::nobs(m), error=function(e) NA)))
+R2 <- sapply(dim_models, get_r2)              # length == number of columns
+star <- function(p) ifelse(is.na(p),"", ifelse(p<.01,"$^{***}$", ifelse(p<.05,"$^{**}$", ifelse(p<.10,"$^{*}$",""))))
+fmt  <- function(x) ifelse(is.na(x),"", sprintf("%.3f", x))
+fmti <- function(x) ifelse(is.na(x),"", sprintf("%d", x))
+fmtR <- function(x) ifelse(is.na(x),"", sprintf("%.3f", x))
+
+header1 <- paste(" & ", paste(use_labels, collapse = " & "), " \\\\", sep = "")
+header2 <- paste("\\\\[-1.8ex] & ", paste(sprintf("(%d)", seq_along(use_labels)), collapse = " & "), "\\\\", sep = "")
+row_esg      <- paste(" EsGrande & ", paste(sprintf("%s%s", fmt(est), star(pv)), collapse = " & "), " \\\\", sep = "")
+row_esg_se   <- paste("  & (", paste(fmt(se), collapse = ") & ("), ") \\\\", sep = "")
+row_blank    <- paste(rep(" ", length(use_labels)+1), collapse = " & ") %+% " \\\\"
+
+row_mean_overall <- paste("Mean (overall) & ", paste(fmt(overall_means[names(dim_models)]), collapse = " & "), " \\\\")
+row_mean_control <- paste("Mean (control, EsGrande=0) & ", paste(fmt(control_means[names(dim_models)]), collapse = " & "), " \\\\")
+row_n  <- paste("Observations & ", paste(fmti(NN), collapse = " & "), " \\\\")
+row_r2 <- paste("R$^{2}$ & ", paste(sprintf("%.3f", R2), collapse = " & "), " \\\\")
+
+`%+%` <- function(a,b) paste0(a,b)  # tiny helper
+
+# --- Assemble and write LaTeX table ------------------------------------------
+note_cols <- length(use_labels)
+tab_lines <- c(
+  "% FE + clustered SEs table (custom LaTeX, no constant)",
+  "\\begin{table}[!htbp] \\centering ",
+  "  \\caption{Efecto de EsGrande sobre puntajes CUCEI por dimensión (FE: Profesor+Semestre; SE agrupado)}",
+  "  \\label{} ",
+  paste0("\\begin{tabular}{@{\\extracolsep{5pt}}l", paste(rep("c", length(use_labels)), collapse = ""), "}"),
+  "\\\\[-1.8ex]\\hline ",
+  "\\hline \\\\[-1.8ex] ",
+  header1,
+  header2,
+  "\\hline \\\\[-1.8ex] ",
+  row_esg,
+  row_esg_se,
+  row_blank,
+  "\\hline \\\\[-1.8ex] ",
+  row_mean_overall,
+  row_mean_control,
+  row_n,
+  row_r2,
+  "\\hline ",
+  "\\hline \\\\[-1.8ex] ",
+  sprintf("\\textit{Note:}  & \\multicolumn{%d}{r}{$^{*}$p$<$0.1; $^{**}$p$<$0.05; $^{***}$p$<$0.01} \\\\ ", note_cols),
+  "\\end{tabular} ",
+  "\\end{table} "
+)
+writeLines(tab_lines, "cucei_dim_regressions.tex")
+cat("✅ Wrote LaTeX table to: cucei_dim_regressions.tex\n")
+
+```
+
+
+
+## Confianza
+
+# Carga y limpieza de datos
+
+```{r}
+confianza2022_2 <- read.csv("Confianza3.csv", stringsAsFactors = F,
+                            encoding = "UTF-8")
+
+# Quitar observaciones donde no hay ni codigo ni correo (no identificables)
+empty_rows <- confianza2022_2[ confianza2022_2$Q21 == "" & confianza2022_2$Q22 == "", ]
+confianza2022_2 <- confianza2022_2[!(rownames(confianza2022_2) %in% rownames(empty_rows)), ]
+
+# Renombrar variables de interés
+confianza2022_2 <- confianza2022_2 %>%
+  rename(fecha_finalizacion = EndDate, ip=IPAddress, progreso = Progress,
+         duracion_seg = Duration..in.seconds., finalizado = Finished,
+         id_respuesta = ResponseId, g_latitud = LocationLatitude,
+         g_longitud = LocationLongitude, canal_distribucion = DistributionChannel,
+         codigo = Q21, correo = Q22)
+
+# Eliminar variables de no interés
+confianza2022_2 <- confianza2022_2 %>%
+  select(-StartDate, -Status, -RecordedDate, -RecipientLastName,
+         -RecipientFirstName, -RecipientEmail, -ExternalReference, -UserLanguage)
+
+# Eliminar las dos primeras filas. No dan info. relevante
+confianza2022_2 <- confianza2022_2[-c(1:2),]
+
+# Formato hora fecha_finalizacion
+confianza2022_2$fecha_finalizacion <- ymd_hms(confianza2022_2$fecha_finalizacion)
+
+# Casos partículares de typos
+confianza2022_2$codigo <- ifelse(confianza2022_2$codigo == "2022221015", "202221015", confianza2022_2$codigo)
+confianza2022_2$codigo <- ifelse(confianza2022_2$codigo == "20222048", "202220348", confianza2022_2$codigo)
+
+# Consideraciones adicionales de limpieza
+confianza2022_2 <- subset(confianza2022_2, grepl("^20", codigo)) # Borrar pruebas
+confianza2022_2$codigo <- as.integer(confianza2022_2$codigo) # codigo de str a int
+confianza2022_2 <- left_join(confianza2022_2, correos, by = c("codigo" = "Codigo")) # reemplazar correcto formato de correos
+confianza2022_2 <- confianza2022_2 %>%
+  select(-correo)
+confianza2022_2 <- confianza2022_2 %>%
+  select(Correo, everything())
+confianza2022_2 <- confianza2022_2 %>%
+  select(codigo, everything())
+
+# Crear variable de ola
+confianza2022_2$ola <- ifelse(confianza2022_2$fecha_finalizacion
+                          <= as.Date("2022-09-30"), 1, 2)
+confianza2022_2 <- confianza2022_2[, c("codigo", "ola", setdiff(names(confianza2022_2),
+                                                        c("codigo", "ola")))]
+confianza2022_2 <- confianza2022_2[order(confianza2022_2$codigo, confianza2022_2$ola), ]
+
+# Un valor único para ola (se toma la última respuesta)
+confianza2022_2 <- confianza2022_2 %>%
+  group_by(codigo, ola) %>%
+  mutate(id = row_number()) %>%
+  ungroup()
+confianza2022_2 <- confianza2022_2[, c("codigo", "id", "ola",
+                               setdiff(names(confianza2022_2), c("codigo", "id", "ola")))]
+
+confianza2022_2_f <- confianza2022_2 %>% # Se crea la versión final de la base
+  group_by(codigo) %>%
+  slice_max(order_by = id) %>%
+  ungroup()
+
+otras_respuestas_confianza <- confianza2022_2 %>%
+  anti_join(confianza2022_2_f, by = c("codigo", "ola"))
+
+# Eliminar id
+confianza2022_2_f <- confianza2022_2_f %>%
+  select(-id)
+
+# Eliminar si no hay ni una respuesta de la Q1 a Q49 no vacía (progreso <= 4)
+confianza2022_2_f$progreso <- as.integer(confianza2022_2_f$progreso)
+confianza2022_2_f <- subset(confianza2022_2_f, confianza2022_2_f$progreso > 4)
+
+# Agregar profesores para identificar sección
+# Pegar  nombres para identificar género manualmente (no funciona genero())
+
+confianza2022_2_f <- left_join(confianza2022_2_f, info_adicional, by = c("codigo" = "Codigo"))
+
+# Cambio de orden y eliminación variables no comunes entre encuestas (no relevantes)
+confianza2022_2_f <- confianza2022_2_f %>%
+  select(semestre,ola, everything()) %>%
+  select(-Q27,-Q28)
+
+confianza2022_2_f <- confianza2022_2_f[order(confianza2022_2_f$semestre, confianza2022_2_f$codigo,confianza2022_2_f$ola ), ]
+
+# Cambiar todos los valores por numérico
+
+# - Tipo 1
+#Especificar las columnas a transformar
+columnas_transformar_tipo1 <- paste0("Q1_", 1:9)
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(columnas_transformar_tipo1),
+    ~ case_when(
+      . == "Totalmente en Desacuerdo" ~ 1,
+      . == "En desacuerdo" ~ 2,
+      . == "Ni en acuerdo ni en desacuerdo" ~ 3,
+      . == "De acuerdo" ~ 4,
+      . == "Totalmente De acuerdo" ~ 5,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 2
+#Especificar las columnas a transformar
+columnas_transformar_tipo2 <- c()
+for (i in 2:3) {
+  columnas_transformar_tipo2 <- c(columnas_transformar_tipo2, paste0("Q", i, "_", 1:9))
+}
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo2)),
+    ~ case_when(
+      . == "NS/NR" ~ NA,
+      . == "Nada" ~ 1,
+      . == "Poco" ~ 2,
+      . == "Algo" ~ 3,
+      . == "Completamente" ~ 4,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 3
+#Especificar las columnas a transformar
+columnas_transformar_tipo3 <- paste0("Q7_", 1:4)
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo3)),
+    ~ case_when(
+      . == "Sí" ~ 1,
+      . == "No" ~ 0,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 4
+#Especificar las columnas a transformar
+columnas_transformar_tipo4 <- paste0("Q8_", 1:9)
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo4)),
+    ~ case_when(
+      . == "No me siento cómodo, al punto de que no lo haría" ~ 1,
+      . == "No me siento cómodo, al punto de que de pronto lo haría" ~ 2,
+      . == "No me siento ni cómodo/ni incómodo" ~ 3,
+      . == "No me siento toalmente cómodo, pero lo haría" ~ 4,
+      . == "Me siento muy cómodo" ~ 5,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 5
+#Especificar las columnas a transformar
+columnas_transformar_tipo5 <- paste0("Q9_", 1:2)
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo5)),
+    ~ case_when(
+      . == "No me siento cómodo con ningún profesor" ~ 1,
+      . == "Me siento cómodo con pocos profesores" ~ 2,
+      . == "Me siento cómodo con algunos los profesores" ~ 3,
+      . == "Me siento cómodo con varios los profesores" ~ 4,
+      . == "Me siento cómodo con todos los profesores" ~ 5,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 6
+#Especificar las columnas a transformar
+columnas_transformar_tipo6 <- paste0("Q10_", 1:9)
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo6)),
+    ~ case_when(
+      . == "No Aplica" ~ NA,
+      . == "Ninguno" ~ 1,
+      . == "Bajo" ~ 2,
+      . == "Medio" ~ 3,
+      . == "Alto" ~ 4,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 7
+#Especificar las columnas a transformar
+columnas_transformar_tipo7 <- paste0("Q12_", 1:2)
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo7)),
+    ~ case_when(
+      . == "NS/NR" ~ NA,
+      . == "Practicamente nunca" ~ 1,
+      . == "Menos frecuentemente" ~ 2,
+      . == "Una vez al año" ~ 3,
+      . == "Solo en fiestas especiales" ~ 4,
+      . == "Un vez al mes"~ 5,
+      . == "Una vez por semana"~ 6,
+      . == "Más de una vez por semana"~ 7,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 8
+#Especificar las columnas a transformar
+columnas_transformar_tipo8 <- paste0("Q13_", 1:2)
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo8)),
+    ~ case_when(
+      . == "NS/NR" ~ NA,
+      . == "Practicamente nunca" ~ 1,
+      . == "Menos frecuentemente" ~ 2,
+      . == "Una vez al día" ~ 3,
+      . == "Una vez en la mañana y una en la tarde" ~ 4,
+      . == "Solo por fuera de clases"~ 5,
+      . == "Una vez cada hora"~ 6,
+      . == "Constantemente"~ 7,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 9
+#Especificar las columnas a transformar
+columnas_transformar_tipo9 <- paste0("Q14_", 1:5)
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo9)),
+    ~ case_when(
+      . == "NS/NR" ~ NA,
+      . == "Nada satisfecho" ~ 1,
+      . == "Poco satisfecho" ~ 2,
+      . == "Satisfecho" ~ 3,
+      . == "Muy Satisfecho" ~ 4,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 10
+#Especificar las columnas a transformar
+columnas_transformar_tipo10 <- paste0("Q15_", 1:6)
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo10)),
+    ~ case_when(
+      . == "NS/NR" ~ NA,
+      . == "Nada Importante" ~ 1,
+      . == "No Muy Importante" ~ 2,
+      . == "Importante" ~ 3,
+      . == "Muy Importante" ~ 4,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 11
+#Especificar las columnas a transformar
+columnas_transformar_tipo11 <- "Q16"
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo11)),
+    ~ case_when(
+      . == "NS/NR" ~ NA,
+      . == "Nada feliz" ~ 1,
+      . == "No muy feliz" ~ 2,
+      . == "Bastante feliz" ~ 3,
+      . == "Muy feliz" ~ 4,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 12
+#Especificar las columnas a transformar
+columnas_transformar_tipo12 <- "Q17"
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo12)),
+    ~ case_when(
+      . == "NS/NR" ~ NA,
+      . == "Malo" ~ 1,
+      . == "Regular" ~ 2,
+      . == "Bueno" ~ 3,
+      . == "Muy bueno" ~ 4,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 13
+#Especificar las columnas a transformar
+columnas_transformar_tipo13 <- "Q18"
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo13)),
+    ~ case_when(
+      . == "NS/NR" ~ NA,
+      . == "No se puede ser tan confiado al tratar con la gente" ~ 1,
+      . == "Se puede confiar en la mayoría de las personas" ~ 2,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 14
+#Especificar las columnas a transformar
+columnas_transformar_tipo14 <- "Q19"
+
+#Reemplazar los valores en las columnas seleccionadas del dataframe clima2022_2_f
+confianza2022_2_f <- confianza2022_2_f %>%
+  mutate_at(
+    vars(matches(columnas_transformar_tipo14)),
+    ~ case_when(
+      . == "NS/NR" ~ NA,
+      . == "La gente se comporta de manera oportunista y cada vez que puede se salta sus obligaciones con lo demás" ~ 1,
+      . == "La gente tiende a cumplir sus obligaciones con otros" ~ 2,
+      . == "La gente en general cumple sus obligaciones para asegurarse que después le cumplan a él" ~ 3,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# - Tipo 15
+confianza2022_2_f$Q20_1 <- ifelse(confianza2022_2_f$Q20_1 == "", NA, confianza2022_2_f$Q20_1)
+
+# Consideración de orden final
+confianza2022_2_f <- confianza2022_2_f %>%
+  select(semestre,ola, codigo, Correo, Nombres, seccion, grupo, fecha_finalizacion,
+         ip, progreso, duracion_seg, finalizado, id_respuesta,
+         g_latitud, g_longitud, canal_distribucion,everything())
+```
+
+
+# Modelos de Confiranza (output en Txt para overleaf)
+```{r}
+confianza2022_2_f$semestre <- ifelse(confianza2022_2_f$semestre == "2022_2", "202220", "202310")
+confianza2022_2_f$cod_cruce <- paste0(confianza2022_2_f$codigo, confianza2022_2_f$semestre)
+
+confianza2022_2_f_join <- confianza2022_2_f %>% 
+  select(cod_cruce, starts_with("Q"))
+
+gTablaDemografica2022_conf <- left_join(gTablaDemografica2022, confianza2022_2_f_join, by = "cod_cruce")
+
+for (i in 1:20) {
+}
+
+# for (i in 1:49) {
+#   response_var <- paste0("Q", i)
+#   model_name <- paste0("conf_regEG_q", i)
+#   model <- lm(as.formula(paste(response_var, "~ EsGrande")), data = gTablaDemografica2022_conf)
+#   assign(model_name, model)
+# }
+
+# Crear una lista de modelos de regresión
+allRegs <- list()
+
+for (i in 1:49) {
+  model_name <- paste0("regEG_q", i)
+  allRegs[[model_name]] <- get(model_name)
+}
+
+# Calcular intervalos de confianza y errores estándar
+confIntsPd <- lapply(allRegs, function(model) {
+  confint(model)
+})
+
+AVarsPd <- lapply(allRegs, function(model) {
+  sqrt(diag(vcov(model)))
+})
+
+# Crear un tibble con los coeficientes y sus intervalos de confianza
+confs <- tibble()
+
+for (name in names(allRegs)) {
+  reg <- allRegs[[name]]
+  netName <- name
+  year <- "2022"  # Asumiendo que el año es 2022, ajustar si es necesario
+  
+  # Obtener los coeficientes y sus intervalos de confianza
+  model_confs <- tidy(reg) %>%
+    mutate(
+      conf.low = confIntsPd[[name]][, 1],
+      conf.high = confIntsPd[[name]][, 2],
+      model = name,
+      net.name = netName,
+      year.obs = year
+    )
+  
+  confs <- bind_rows(confs, model_confs)
+}
+
+# Crear los gráficos
+
+setwd(plot.dir)
+for (name in unique(confs$model)) {
+  temp <- confs %>% filter(model == name) %>% select(term, estimate, std.error, conf.low, conf.high)
+  plot1 <- dwplot(temp, ci = 0.95) +    
+    theme_bw(base_size = 10) + 
+    theme(legend.position = "none") + 
+    xlab("Coefficient Estimate") + ylab("") +
+    ggtitle(name) +
+    geom_vline(xintercept = 0, colour = "grey60", linetype = 2)
+  
+  file <- paste0("SMsample_", name, ".png")
+  ggsave(filename = file, plot = plot1, device = "png")
+}
+
+## Plot combinado
+
+
+# Extraer los coeficientes y sus intervalos de confianza para cada modelo
+coefs <- lapply(allRegs, function(model) {
+  coef_summary <- summary(model)
+  coef_data <- coef_summary$coefficients
+  data.frame(
+    term = rownames(coef_data),
+    estimate = coef_data[, 1],
+    conf.low = coef_data[, 1] - 1.96 * coef_data[, 2],  # 95% confidence interval
+    conf.high = coef_data[, 1] + 1.96 * coef_data[, 2]
+  )
+})
+
+# Combinar los coeficientes en un solo data frame
+coefs_combined <- do.call(rbind, coefs)
+coefs_combined <- subset(coefs_combined,coefs_combined$term == "EsGrande")
+coefs_combined <- tibble::rowid_to_column(coefs_combined, "model")
+
+
+
+
+# Crear el gráfico con dotwhisker - V1
+
+plot_combined <- dwplot(
+  coefs_combined,
+  model_name = "model",
+  estimate = "estimate", 
+  conf.low = "conf.low", 
+  conf.high = "conf.high"
+) +
+  theme_bw(base_size = 20) +  
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  xlab("Coefficient Estimate") + ylab("") +
+  ggtitle("Combined Coefficient Plot") +
+  scale_y_discrete(expand = c(0, 0.1))
+
+# Guardar el gráfico con un tamaño más ancho
+file <- "plot_combined1.png"
+ggsave(filename = file, plot = plot_combined, device = "png", width = 14, height = 15)
+
+
+
+
+
+
+
+# Crear el gráfico con dotwhisker - V2
+
+plot_combined <- dwplot(allRegs,
+                        vline = geom_vline(
+                          xintercept = 0,
+                          colour = "grey60",
+                          linetype = 2)
+) +
+  theme_bw(base_size = 4) + 
+  xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0,
+             colour = "grey60",
+             linetype = 2) +
+  ggtitle("Combined coefficient plot") +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = c(0.007, 0.01),
+    legend.justification = c(0, 0),
+    legend.background = element_rect(colour = "grey80"),
+    legend.title = element_blank()
+  ) 
+
+# Guardar el gráfico
+file <- "plot_combined4.png"
+ggsave(filename = file, plot = plot_combined, device = "png")
+
+
+
+# Generar las tablas LaTeX con stargazer en grupos de 5
+for (j in 0:9) {
+  start <- j * 5 + 1
+  end <- min((j + 1) * 5, 49)
+  subset_models <- allRegs[paste0("regEG_q", start:end)]
+  
+  stargazer(subset_models, 
+            type = "latex", 
+            title = paste0("Treatment effect on question (Q", start, " to Q", end, ") answer"), 
+            dep.var.labels = "Question", 
+            covariate.labels = "treatment", 
+            out = paste0("regression_table_", start, "_", end, ".tex"), 
+            model.names = FALSE, 
+            star.cutoffs = c(0.1, 0.05, 0.01), 
+            column.labels = paste0("Q", start:end), 
+            keep.stat = c("n", "rsq"))
+}
+```
+
+## Modelos de desempeño de clima de aula y confianza
+```{r}
+allRegs <- list(
+  # Modelos de 2022
+  modelo2022_EG, modelo2022_Ed, modelo2022_E1, modelo2022_E2, modelo2022_E3, modelo2022_E4,
+  modelo2022_puniandes, modelo2022_puniandes_d, modelo2022_puniandes_1, modelo2022_puniandes_2,
+  modelo2022_puniandes_3, modelo2022_puniandes_4, modelo2022_puniandes_q_p, modelo2022_puniandes_q_d,
+  modelo2022_puniandes_q_1, modelo2022_puniandes_q_2, modelo2022_puniandes_q_3, modelo2022_puniandes_q_4,
+  modelo2022_g, modelo2022_g_d, modelo2022_g_1, modelo2022_g_2, modelo2022_g_3, modelo2022_g_4,
+  modelo2022_est, modelo2022_est_d, modelo2022_est_1, modelo2022_est_2, modelo2022_est_3, modelo2022_est_4,
+  
+  # Modelos de 2023
+  modelo2023_EG, modelo2023_Ed, modelo2023_E1, modelo2023_E2, modelo2023_E3, modelo2023_E4,
+  modelo2023_puniandes, modelo2023_puniandes_d, modelo2023_puniandes_1, modelo2023_puniandes_2,
+  modelo2023_puniandes_3, modelo2023_puniandes_4, modelo2023_puniandes_q_p, modelo2023_puniandes_q_d,
+  modelo2023_puniandes_q_1, modelo2023_puniandes_q_2, modelo2023_puniandes_q_3, modelo2023_puniandes_q_4,
+  modelo2023_g, modelo2023_g_d, modelo2023_g_1, modelo2023_g_2, modelo2023_g_3, modelo2023_g_4,
+  modelo2023_est, modelo2023_est_d, modelo2023_est_1, modelo2023_est_2, modelo2023_est_3, modelo2023_est_4
+)
+
+# Calcular intervalos de confianza y errores estándar
+confIntsPd <- lapply(allRegs, function(model) {
+  confint(model)
+})
+
+AVarsPd <- lapply(allRegs, function(model) {
+  sqrt(diag(vcov(model)))
+})
+
+# Crear un tibble con los coeficientes y sus intervalos de confianza
+confs <- tibble()
+
+for (name in names(allRegs)) {
+  reg <- allRegs[[name]]
+  netName <- name
+  year <- "2022"  # Asumiendo que el año es 2022
+  
+  # Obtener los coeficientes y sus intervalos de confianza
+  model_confs <- tidy(reg) %>%
+    mutate(
+      conf.low = confIntsPd[[name]][, 1],
+      conf.high = confIntsPd[[name]][, 2],
+      model = name,
+      net.name = netName,
+      year.obs = year
+    )
+  
+  confs <- bind_rows(confs, model_confs)
+}
+
+# Crear los gráficos
+
+setwd(plot.dir)
+for (name in unique(confs$model)) {
+  temp <- confs %>% filter(model == name) %>% select(term, estimate, std.error, conf.low, conf.high)
+  plot1 <- dwplot(temp, ci = 0.95) +    
+    theme_bw(base_size = 10) + 
+    theme(legend.position = "none") + 
+    xlab("Coefficient Estimate") + ylab("") +
+    ggtitle(name) +
+    geom_vline(xintercept = 0, colour = "grey60", linetype = 2)
+  
+  file <- paste0("SMsample_", name, ".png")
+  ggsave(filename = file, plot = plot1, device = "png")
+}
+
+## Plot combinado
+
+
+# Extraer los coeficientes y sus intervalos de confianza para cada modelo
+coefs <- lapply(allRegs, function(model) {
+  coef_summary <- summary(model)
+  coef_data <- coef_summary$coefficients
+  data.frame(
+    term = rownames(coef_data),
+    estimate = coef_data[, 1],
+    conf.low = coef_data[, 1] - 1.96 * coef_data[, 2],  # 95% confidence interval
+    conf.high = coef_data[, 1] + 1.96 * coef_data[, 2]
+  )
+})
+
+# Plots
+
+### Es grande ###
+# Combinar los coeficientes en un solo data frame
+coefs_combined <- do.call(rbind, coefs)
+coefs_combined <- subset(coefs_combined,coefs_combined$term == "EsGrande")
+coefs_combined <- tibble::rowid_to_column(coefs_combined, "model")
+
+# Crear el gráfico con dotwhisker - V1
+
+plot_combined <- dwplot(
+  coefs_combined,
+  model_name = "model",
+  estimate = "estimate", 
+  conf.low = "conf.low", 
+  conf.high = "conf.high"
+) +
+  theme_bw(base_size = 20) +  
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  xlab("Coefficient Estimate") + ylab("") +
+  ggtitle("Combined Coefficient Plot") +
+  scale_y_discrete(expand = c(0, 0.1))
+
+### P_uniandes ###
+# Extraer los coeficientes y sus intervalos de confianza para cada modelo
+coefs <- lapply(allRegs, function(model) {
+  coef_summary <- summary(model)
+  coef_data <- coef_summary$coefficients
+  data.frame(
+    term = rownames(coef_data),
+    estimate = coef_data[, 1],
+    conf.low = coef_data[, 1] - 1.96 * coef_data[, 2],  # 95% confidence interval
+    conf.high = coef_data[, 1] + 1.96 * coef_data[, 2]
+  )
+})
+
+# Combinar los coeficientes en un solo data frame
+coefs_combined <- do.call(rbind, coefs)
+coefs_combined <- subset(coefs_combined,coefs_combined$term == "puniandes")
+coefs_combined <- tibble::rowid_to_column(coefs_combined, "model")
+
+# Crear el gráfico con dotwhisker - V1
+
+plot_combined <- dwplot(
+  coefs_combined,
+  model_name = "model",
+  estimate = "estimate", 
+  conf.low = "conf.low", 
+  conf.high = "conf.high"
+) +
+  theme_bw(base_size = 20) +  
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  xlab("Coefficient Estimate") + ylab("") +
+  ggtitle("Combined Coefficient Plot") +
+  scale_y_discrete(expand = c(0, 0.1))
+
+
+# Guardar el gráfico con un tamaño más ancho
+file <- "plot_combined_desempeño_puniandes.png"
+ggsave(filename = file, plot = plot_combined, device = "png", width = 14, height = 15)
+
+# Generar las tablas LaTeX con stargazer en grupos de 5
+for (j in 0:(ceiling(length(allRegs) / 3) - 1)) {
+  start <- j * 3 + 1
+  end <- min((j + 1) * 3, length(allRegs))
+  subset_models <- allRegs[start:end]
+  
+  stargazer(subset_models, 
+            type = "latex", 
+            title = paste0("Efecto de la sección grande en..."),
+            out = paste0("tabla_regresion_", start, "_", end, ".tex"), 
+            model.names = FALSE, 
+            star.cutoffs = c(0.1, 0.05, 0.01), 
+            column.labels = paste0("Desempeño ", start:end), 
+            keep.stat = c("n", "rsq"))
+}
+
+```

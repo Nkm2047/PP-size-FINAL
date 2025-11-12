@@ -1,0 +1,534 @@
+---
+title: "Proyecto_Clima_Aula_Script1"
+author: "Nicolás Bello (cn.belloc@uniandes.edu.co)"
+date: "2025-07-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librerias
+
+Se cargan las siguientes librerias para la ejecución del código. Note que la libreria ditwhisker es posible que se deba instalar manualmente ya que al momento de la creación de este script fue dada de baja de la página CRAN
+
+```{r}
+library(RColorBrewer)
+library(dplyr)
+library(tibble)
+library(dotwhisker)
+library(ggplot2)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(foreign)
+library(haven)
+library(matrixStats)
+library(devtools)
+library(broom)
+library(ggplot2)
+library(latex2exp)
+library(dplyr)
+library(stringr)
+library(dotwhisker)
+library(scales)
+library(stargazer)
+library(readxl)
+```
+
+## Lugares de trabajo y outputs
+
+Se definen los siguientes entornos de trabajo y capetas para visualizar outputs. Estas son las rutas que debe modificar para ejecutar el código.
+
+```{r}
+# --- Find the directory of this script ---
+get_script_path <- function() {
+  # If run with Rscript
+  args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- "--file="
+  path_idx <- grep(file_arg, args)
+  if (length(path_idx) > 0) {
+    return(normalizePath(sub(file_arg, "", args[path_idx])))
+  }
+  
+  # If sourced in RStudio
+  if (requireNamespace("rstudioapi", quietly = TRUE) &&
+      rstudioapi::isAvailable()) {
+    return(rstudioapi::getSourceEditorContext()$path)
+  }
+  
+  # If sourced in plain R console
+  if (!is.null(sys.frames()[[1]]$ofile)) {
+    return(normalizePath(sys.frames()[[1]]$ofile))
+  }
+  
+  # Fallback: working directory
+  return(normalizePath("."))
+}
+
+script_path <- get_script_path()
+script_dir  <- dirname(script_path)
+
+raw_data <- file.path(script_dir, "../raw data")
+transformed_data <- file.path(script_dir, "../transformed data")
+```
+
+## Se carga la lista de estudiantes y se realiza una breve limpieza
+
+La limpieza consta de definir las secciones de los profesores y definir claves de semestre
+
+```{r}
+setwd(raw_data)
+
+lista_estudiantes_2022_2 <- read_excel("Lista2022_2.xlsx") 
+
+lista_estudiantes_2022_2 <- lista_estudiantes_2022_2 %>% 
+  select(-`Dos apellidos`, - `Un apellido`, -...7, -...11) %>% 
+  rename(Programa = ...6)
+
+# correos <- lista_estudiantes %>%
+#   select(Codigo, Correo)
+# 
+# profesores <- lista_estudiantes %>% 
+#   select(Codigo, Profesor, Complementario)
+# 
+# nombres <- lista_estudiantes %>% 
+#   select(Codigo, Nombres)
+
+lista_estudiantes_2022_2$semestre = "2022_2"
+
+lista_estudiantes_2022_2$seccion <- ifelse(lista_estudiantes_2022_2$Profesor == "PAULA JARAMILLO VIDALES" & lista_estudiantes_2022_2$Complementario == "DAVID LASSO", 1,
+                                ifelse(lista_estudiantes_2022_2$Profesor == "PAULA JARAMILLO VIDALES" & lista_estudiantes_2022_2$Complementario == "DAVID MEJIA RAVE", 2,
+                                       ifelse(lista_estudiantes_2022_2$Profesor == "PAULA JARAMILLO VIDALES" & lista_estudiantes_2022_2$Complementario == "JHOAN SEBASTIÁN FUENTES", 3,
+                                              ifelse(lista_estudiantes_2022_2$Profesor == "PAULA JARAMILLO VIDALES" & lista_estudiantes_2022_2$Complementario == "SARA CATALINA SERRANO", 4,
+                                                     ifelse(lista_estudiantes_2022_2$Profesor == "TOMÁS RODRIGUEZ BARRAQUER" & lista_estudiantes_2022_2$Complementario == "JUAN SEBASTIÁN ARÉVALO", 5, NA)))))
+
+lista_estudiantes_2022_2$grupo <- ifelse(lista_estudiantes_2022_2$seccion == 1, "Paula C", 
+                              ifelse(lista_estudiantes_2022_2$seccion == 2, "Paula G", 
+                                     ifelse(lista_estudiantes_2022_2$seccion == 3, "Paula G", 
+                                            ifelse(lista_estudiantes_2022_2$seccion == 4, "Paula G",
+                                                   ifelse(lista_estudiantes_2022_2$seccion == 5, "Tomas C", NA)))))
+lista_estudiantes_2022_2 <- lista_estudiantes_2022_2 %>%
+  select(semestre, Codigo, Apellidos, Nombres, Programa, Profesor, Correo, Complementario, 
+         seccion, grupo)
+
+# lista 2023
+lista_estudiantes_2023_1 <- read_excel("Estudiantes2023.xlsx") 
+
+lista_estudiantes_2023_1 <- lista_estudiantes_2023_1 %>% 
+  rename(Codigo = Código, Correo = Email, Complementario = `Profesor complementario`,
+         seccion = Sección) %>% 
+  select(-Consentimiento)
+
+# correos <- lista_estudiantes_2023_1 %>%
+#   select(Codigo, Correo)
+# 
+# profesores <- lista_estudiantes_23 %>% 
+#   select(Codigo, Profesor, Complementario)
+# 
+# nombres <- lista_estudiantes_23 %>% 
+#   select(Codigo, Nombres)
+
+lista_estudiantes_2023_1$semestre = "2023_1"
+
+lista_estudiantes_2023_1$grupo <- ifelse(lista_estudiantes_2023_1$seccion == 1, "Tomas C", 
+                                  ifelse(lista_estudiantes_2023_1$seccion == 2, "Paula G", 
+                                         ifelse(lista_estudiantes_2023_1$seccion == 3, "Paula G", 
+                                                ifelse(lista_estudiantes_2023_1$seccion == 4, "Paula C",
+                                                       ifelse(lista_estudiantes_2023_1$seccion == 5, "Paula G", NA)))))
+
+lista_estudiantes_2023_1 <- lista_estudiantes_2023_1 %>%
+  select(semestre, Codigo, Apellidos, Nombres, Programa, Profesor, Correo, Complementario, 
+         seccion, grupo)
+
+# lista completa
+
+lista_estudiantes <- rbind(lista_estudiantes_2022_2, lista_estudiantes_2023_1)
+
+correos <- lista_estudiantes %>%
+  select(Codigo, Correo)
+
+info_adicional <- lista_estudiantes %>%
+  select(Codigo, Nombres, semestre, seccion, grupo)
+```
+
+## Anonimización
+
+Se realiza el proceso de anonimización de los datos
+
+```{r}
+# Definimos la funcion
+lista_memoria <- list()
+
+anonimizar_id <- function(id){
+  nuevo_id <- paste0(sample(1:9, 1, replace=T),sample(0:9, 4, replace=T), collapse = "")
+  nuevo_id <- as.numeric(nuevo_id)
+  while(nuevo_id %in% lista_memoria){
+    nuevo_id <- paste0(sample(1:9, 1, replace=T),sample(0:9, 4, replace=T), collapse = "")
+  }
+  lista_memoria[[length(lista_memoria ) + 1]] <- nuevo_id
+  return(nuevo_id)
+}
+
+# Aplicamos la funcion
+lista_estudiantes$CodigoAnon <- sapply(lista_estudiantes$Codigo, anonimizar_id)
+
+# Verificamos que no haya repeticiones
+du <- duplicated(lista_estudiantes$CodigoAnon)
+print(any(du))
+
+# Reordenamos base
+lista_estudiantes <- lista_estudiantes %>% 
+  select(Codigo, CodigoAnon, everything())
+
+#Creamos indice de estudiantes y exportamos archivo
+indice_est <- lista_estudiantes[, c("Codigo", "CodigoAnon")]
+write.csv(indice_est, paste0(transformed_data,"/indice_estudiantes.csv", collapse = ""), row.names = FALSE)
+```
+## Creación de la gran tabla demográfica
+
+La gran tabla demográfica consta del cruce de la información demográfica con la lista de estudiantes del curso. Adicinoalmente se realizan procesos de limpieza y estandarización de datos para poder realizar análisis posteriores. En comentarios dentro del codigo se explica brevemente que realiza cada sección
+
+```{r}
+# Generamos variable "tomo curso semestre pasado (solo válida para 2023-1)"
+
+# Obtenemos lista 2022-1
+setwd(raw_data)
+lista2022_1 <- read_excel("ListaPP_2022_1_24E.xlsx")
+lista2022_1 <- lista2022_1[, "CARNÉ"]
+lista2022_1 <- as.data.frame(sapply(lista2022_1, as.numeric))
+
+# Repitentes
+# Repitentes directos
+gTablaDemografica <- lista_estudiantes
+gTablaDemografica$tomo_curso_sem_pasado <- 0
+
+#2022-2
+for (i in 1:length(gTablaDemografica$Codigo)){
+  if(gTablaDemografica$semestre[i]=="2022_2"){
+    if(gTablaDemografica$Codigo[i] %in% lista2022_1$CARNÉ){
+      gTablaDemografica$tomo_curso_sem_pasado[i] <- 1
+    }
+  }
+}
+
+#2023-1
+for (i in 1:length(gTablaDemografica$Codigo)){
+  if(gTablaDemografica$semestre[i]=="2023_1"){
+    if(gTablaDemografica$Codigo[i] %in% lista_estudiantes_2022_2$Codigo){
+      gTablaDemografica$tomo_curso_sem_pasado[i] <- 1
+    }
+  }
+}
+
+#Repitentes general
+
+gTablaDemografica$repitio_alguna_vez <- gTablaDemografica$tomo_curso_sem_pasado
+
+for (i in 1:length(gTablaDemografica$Codigo)){
+  if(gTablaDemografica$semestre[i]=="2023_1"){
+    if(gTablaDemografica$Codigo[i] %in% lista_estudiantes_2022_2$Codigo | gTablaDemografica$Codigo[i] %in% lista2022_1$CARNÉ){
+      gTablaDemografica$repitio_alguna_vez[i] <- 1
+    }
+  }
+}
+
+## Cruce con SPADIES
+spadies <- read_dta("datos_estudiantes_pp.dta")
+
+# Creamos codigo de cruce
+gTablaDemografica$semestre2 <- ifelse(gTablaDemografica$semestre == "2022_2", 202220, 202310)
+gTablaDemografica$cod_cruce <- paste0(gTablaDemografica$Codigo, gTablaDemografica$semestre2)
+
+spadies$cod_cruce <- paste0(spadies$codigo, spadies$mat_periodo)
+
+sinDemograficos <- gTablaDemografica[!gTablaDemografica$cod_cruce %in% spadies$cod_cruce,]
+
+# De momento nos quedamos con cod_cruce para cruzar con encuestas
+
+# primera anonimización
+gTablaDemografica <- gTablaDemografica %>% 
+  select(-Codigo,-Apellidos, -Nombres, -Correo, -semestre2)
+
+# Consolidación de notas por semestre y codigo
+notas_2023 <- read_excel("Notas 2023-1.xlsx")
+notas_2022 <- read_excel("Notas 2022-2.xlsx")
+
+notas_2022 <- notas_2022[-1,]
+notas_2022_f <- notas_2022 %>% 
+  select(...2,...16,...17, ...22,...26, Final) %>% 
+  mutate(...2=paste(...2,202220, sep = "")) %>% 
+  rename("cod_cruce" = "...2", 
+         "E1" = "...16",
+         "E2" = "...17",
+         "E3" = "...22",
+         "E4" = "...26",
+         "presenta_final" = "Final")
+
+notas_2023 <- notas_2023[-1,]
+notas_2023_f <- notas_2023 %>% 
+  select(`Archivo de notas principal - Pensando Problemas 2023-1`,`Módulo 1`,...11,`Módulo 2`,`Módulo 3`, Evaluaciones) %>% 
+  mutate(`Archivo de notas principal - Pensando Problemas 2023-1`=paste(`Archivo de notas principal - Pensando Problemas 2023-1`,202310, sep = "")) %>% 
+  rename("cod_cruce" = "Archivo de notas principal - Pensando Problemas 2023-1", 
+         "E1" = "Módulo 1",
+         "E2" = "...11",
+         "E3" = "Módulo 2",
+         "E4" = "Módulo 3",
+         "presenta_final" = "Evaluaciones")
+
+notas <- rbind(notas_2022_f, notas_2023_f)
+
+notas <- notas %>% 
+  mutate( E1 = as.numeric(E1),
+          E2 = as.numeric(E2),
+          E3 = as.numeric(E3),
+          E4 = as.numeric(E4)) %>% 
+  mutate( E1 = replace_na(E1, 0),
+          E2 = replace_na(E2, 0),
+          E3 = replace_na(E3, 0),
+          E4 = replace_na(E4, 0)) %>% 
+  mutate(mean = rowMeans(.[c("E1", "E2", "E3", "E4")], na.rm = TRUE),
+         median = rowMedians(as.matrix(.[c("E1", "E2", "E3", "E4")]), na.rm = TRUE))
+
+notas$presenta_final <- tolower(notas$presenta_final)
+
+## Consolidacion datos SPADIES
+spadies_anon <- spadies %>% 
+  select(-codigo, -mat_periodo, -mat_apellidos, -mat_nombres,
+         -mat_cedula, -mat_email, -mat_numdocumento, -mat_rg_apellidos, -mat_rg_nombres, -mat_correouniandes,
+         -mat_correopersonal, -deca_cedula, -deca_correo_alt, -cur_nombres, -cur_apellidos, -adm_apellidos, 
+         -adm_nombre, -adm_doc_ident, -icfes_snp, -adm_email_acudiente, -adm_email_asp, -adm_email_madre, 
+         -adm_email_padre, -adm_email_per, -adm_email_uni, -adm_dsti_email_personal, -adm_nombre_acudiente,
+         -adm_nombres_madre, -adm_nombres_padre, -adm_nombre, -adm_nombres, -adm_apellidos_padre, -adm_apellidos,
+         -adm_apellidos_madre, -adm_dsti_apellidos, -adm_dsti_nombre1, -adm_dsti_nombre2, -adm_dsti_nombres_del_acudiente,
+         -adm_email_acudiente, -gra_nombres, -gra_apellidos, -gra_correouniandes, -gra_correopersonal, -gra_nombre,
+         -gra_doc_ident, -sp_id_persona, -sp_e_nombres, -sp_e_apellidos, -sp_e_doc_numero, -sp_s11_nombres, -sp_s11_num_doc,
+         -icfes_estudiante_nombre, -rg_apellidos, -rg_nombres)
+
+
+spadies_anon <- spadies_anon %>%
+  mutate(across(where(~ any(. %in% c("", " "))), na_if, ""))
+
+# Estrato
+columnas_estrato <- colnames(spadies_anon)[grepl("est|estrato|dir", colnames(spadies_anon), ignore.case = TRUE)]
+print(columnas_estrato)
+
+estrato <- spadies_anon[,c("cod_cruce","mat_estrato", "adm_estrato", "spp_estado","sp_s11_estrato", "mat_direccion", "mat_direccion_estud", "adm_direccion")]
+
+estrato$estrato <- ifelse(!(is.na(estrato$mat_estrato)), estrato$mat_estrato,
+                          ifelse(!(is.na(estrato$adm_estrato)),estrato$adm_estrato,
+                                 ifelse(!(is.na(estrato$spp_estado)),estrato$spp_estado, NA)))
+estrato <- estrato %>% 
+  select(cod_cruce, estrato)
+
+cantidad_na <- sum(is.na(estrato$estrato))
+print(cantidad_na)
+
+porcentaje_na <- sum(is.na(estrato$estrato)) / nrow(estrato) * 100
+print(100-porcentaje_na)
+
+# Indice socio demográfico - DESCARTADO POR NA
+col_ind_soc <- colnames(spadies_anon)[grepl("soc|inse", colnames(spadies_anon), ignore.case = TRUE)]
+print(col_ind_soc)
+
+ind_soc <- spadies_anon[,c("cod_cruce","icfes_niv10_socioecon", "icfes_niv3_socioecon")]
+
+# Puntaje uniandes
+columnas_puniandes <- colnames(spadies_anon)[grepl("punt|uniandes", colnames(spadies_anon), ignore.case = TRUE)] # No sirvio en este caso
+print(columnas_puniandes)
+
+puniandes <- spadies_anon[,c("cod_cruce","adm_total")]
+
+puniandes <- puniandes %>% 
+  rename("puniandes" = "adm_total")
+
+cantidad_na <- sum(is.na(puniandes$puniandes))
+print(cantidad_na)
+
+porcentaje_na <- sum(is.na(puniandes$puniandes)) / nrow(puniandes) * 100
+print(100-porcentaje_na)
+
+# Ciudad
+columnas_ciudad <- colnames(spadies_anon)[grepl("ciu|resi", colnames(spadies_anon), ignore.case = TRUE)]
+print(columnas_ciudad)
+
+ciudad <- spadies_anon[,c("cod_cruce","mat_ciudad", "mat_ciudaddenacimiento", "mat_ciudadresidencia",
+                             "mat_departamentoresidencia", "deca_ciudad_col", "adm_ciudad_col", "adm_ciudad_nac",
+                             "adm_ciudad_o", "adm_ciudad_padre", "adm_ciudad_madre", "adm_ciudad_acudiente", "adm_ciudadano")]
+
+ciudad <- ciudad %>% 
+  select("cod_cruce", "adm_ciudad_col", "adm_ciudad_nac") %>% 
+  rename("ciudad_residencia" = "adm_ciudad_col", "ciudad_nacimiento" = "adm_ciudad_nac")
+
+# NOTA:No habian mas municipios de esta zona metropolitana de bogota a parte de bogota propiamente en NACIMIENTO (mirar con unique())
+
+ciudad$ciudad_agrupada_residencia <- ifelse(ciudad$ciudad_residencia == "BOGOTA D.C." |
+                                              ciudad$ciudad_residencia == "COTA" |
+                                              ciudad$ciudad_residencia == "CAJICA" |
+                                              ciudad$ciudad_residencia == "CHIA" |
+                                              ciudad$ciudad_residencia == "MADRID (CUND)", "Bogotá Metropolitana", ciudad$ciudad_residencia)
+
+
+ciudad$ciudad_agrupada_nacimiento <- ifelse(ciudad$ciudad_nacimiento == "BOGOTA D.C." |
+                                              ciudad$ciudad_nacimiento == "COTA" |
+                                              ciudad$ciudad_nacimiento == "CAJICA" |
+                                              ciudad$ciudad_nacimiento == "CHIA" |
+                                              ciudad$ciudad_nacimiento == "MADRID (CUND)", "Bogotá Metropolitana", ciudad$ciudad_nacimiento)
+
+# Colegio
+columnas_cole <- colnames(spadies_anon)[grepl("cole|col", colnames(spadies_anon), ignore.case = TRUE)] # No sirvio en este caso
+print(columnas_cole)
+
+colegio <- spadies_anon[,c("cod_cruce","adm_cod_colegio", "adm_colegio", "adm_ciudad_col", "adm_depto_col",
+                             "adm_curso_bach_un_colegio", "num_amigos", "d_amigos", "num_amigos2", "d_amigos2",
+                           "mat_tipo_admision")]
+
+# Colegio
+columnas_cole <- colnames(spadies_anon)[grepl("cole|col", colnames(spadies_anon), ignore.case = TRUE)] # No sirvio en este caso
+print(columnas_cole)
+
+colegio <- spadies_anon[,c("cod_cruce","adm_cod_colegio", "adm_colegio", "adm_ciudad_col", "adm_depto_col",
+                           "adm_curso_bach_un_colegio", "num_amigos", "d_amigos", "num_amigos2", "d_amigos2",
+                           "mat_tipo_admision", "adm_tipo_admision")]
+
+# Edad
+columnas_edad <- colnames(spadies_anon)[grepl("edad|naci|nac", colnames(spadies_anon), ignore.case = TRUE)] # No sirvio en este caso
+print(columnas_edad)
+
+# Nota:no hay datos completos sobre el periodo de admision
+edad <- spadies_anon[,c("cod_cruce","edad", "edad_min")]
+
+#Semestre
+semestre <- spadies_anon[,c("cod_cruce","segvar")]
+
+#P deserción
+desercion <- spadies_anon[,c("cod_cruce","deserta", "e_deserta", "deserta1", "deserta5",
+                             "p_1_uniandes1", "p_2_uniandes1", "p_3_uniandes1",
+                             "p_1_uniandes5", "p_2_uniandes5", "p_3_uniandes5")]
+
+#Sisben
+sisben <- spadies_anon[,c("cod_cruce","adm_p_sisben")]
+
+cantidad_na <- sum(is.na(spadies$dir))
+print(cantidad_na)
+
+porcentaje_na <- sum(is.na(sisben$adm_p_sisben)) / nrow(sisben) * 100
+print(100-porcentaje_na)
+
+# Minoría / discapacidad
+min_dis <- spadies_anon[,c("cod_cruce","adm_minoria_etnica", "adm_discapacidad_fisica")]
+
+cantidad_na <- sum(is.na(min_dis$adm_minoria_etnica))
+print(cantidad_na)
+
+porcentaje_na <- sum(is.na(min_dis$adm_minoria_etnica)) / nrow(min_dis) * 100
+print(100-porcentaje_na)
+
+cantidad_na <- sum(is.na(min_dis$adm_discapacidad_fisica))
+print(cantidad_na)
+
+porcentaje_na <- sum(is.na(min_dis$adm_discapacidad_fisica)) / nrow(min_dis) * 100
+print(100-porcentaje_na)
+
+# Pegue de datos
+gTablaDemografica <- merge(gTablaDemografica, puniandes, by="cod_cruce") #Revisar NA
+gTablaDemografica <- merge(gTablaDemografica, notas, by = "cod_cruce")
+
+# Reacer medias de la población
+gTablaDemografica <- gTablaDemografica %>% 
+  select( -mean, -median)
+
+## Inclusion manual de variable de género
+base_sofia_f <- read_dta("PP2022-2023_F.dta")
+
+base_sofia_f$semestre <- ifelse(base_sofia_f$semestre == 202202, "202220", "202310")
+
+genero <- base_sofia_f %>% 
+  select(codigo, Sexo, semestre) %>% 
+  mutate(cod_cruce = paste0(codigo, semestre)) %>% 
+  select(cod_cruce, Sexo)
+
+
+gTablaDemografica <- left_join(gTablaDemografica, genero, by = "cod_cruce")
+
+## Inclusion estrato
+
+gTablaDemografica <- left_join(gTablaDemografica, estrato, by = "cod_cruce")
+
+# Separamos base para 2022 y 2023 y estandarizamos
+# 2022
+gTablaDemografica2022 <- subset(gTablaDemografica, semestre == "2022_2")
+a <- median(gTablaDemografica2022$puniandes, na.rm = T)
+gTablaDemografica2022$d_puniandes_2022 <- ifelse(gTablaDemografica2022$puniandes >= a, 1, 0)
+
+gTablaDemografica2022$Ep <- rowMeans(gTablaDemografica2022[, c("E1", "E2", "E3", "E4")], na.rm = TRUE)
+gTablaDemografica2022$Ed <- gTablaDemografica2022$E4-gTablaDemografica2022$E1
+
+gTablaDemografica2022$E1 <- scale(gTablaDemografica2022$E1, center = TRUE, scale = TRUE)
+gTablaDemografica2022$E2 <- scale(gTablaDemografica2022$E2, center = TRUE, scale = TRUE)
+gTablaDemografica2022$E3 <- scale(gTablaDemografica2022$E3, center = TRUE, scale = TRUE)
+gTablaDemografica2022$E4 <- scale(gTablaDemografica2022$E4, center = TRUE, scale = TRUE)
+gTablaDemografica2022$Ep <- scale(gTablaDemografica2022$Ep, center = TRUE, scale = TRUE)
+gTablaDemografica2022$Ed <- scale(gTablaDemografica2022$Ed, center = TRUE, scale = TRUE)
+
+gTablaDemografica2022$EsGrande <- ifelse(gTablaDemografica2022$grupo == "Paula G", 0, 1)
+
+gTablaDemografica2022$estrato <- as.numeric(gTablaDemografica2022$estrato)
+median_estrato_2022 <- median(gTablaDemografica2022$estrato, na.rm = TRUE)
+median_estrato_2022
+
+gTablaDemografica2022$d_estrato <- ifelse(gTablaDemografica2022$estrato > median_estrato_2022, 1, 0)
+
+modelo2022 <- lm(E4 ~ d_puniandes_2022, data = gTablaDemografica2022)
+summary(modelo2022)
+
+gTablaDemografica2022$cod_cruce <- as.character(gTablaDemografica2022$cod_cruce)
+write.csv(gTablaDemografica2022, paste0(transformed_data,"/gTablaDemografica2022.csv", collapse = ""), row.names = FALSE)
+
+#2023
+gTablaDemografica2023 <- subset(gTablaDemografica, semestre == "2023_1")
+a <- median(gTablaDemografica2023$puniandes, na.rm = T)
+gTablaDemografica2023$d_puniandes_2023 <- ifelse(gTablaDemografica2023$puniandes >= a, 1, 0)
+
+gTablaDemografica2023$Ep <- rowMeans(gTablaDemografica2023[, c("E1", "E2", "E3", "E4")], na.rm = TRUE)
+gTablaDemografica2023$Ed <- gTablaDemografica2023$E4-gTablaDemografica2023$E1
+
+gTablaDemografica2023$E1 <- scale(gTablaDemografica2023$E1, center = TRUE, scale = TRUE)
+gTablaDemografica2023$E2 <- scale(gTablaDemografica2023$E2, center = TRUE, scale = TRUE)
+gTablaDemografica2023$E3 <- scale(gTablaDemografica2023$E3, center = TRUE, scale = TRUE)
+gTablaDemografica2023$E4 <- scale(gTablaDemografica2023$E4, center = TRUE, scale = TRUE)
+gTablaDemografica2023$Ep <- scale(gTablaDemografica2023$Ep, center = TRUE, scale = TRUE)
+gTablaDemografica2023$Ed <- scale(gTablaDemografica2023$Ed, center = TRUE, scale = TRUE)
+
+
+gTablaDemografica2023$EsGrande <- ifelse(gTablaDemografica2023$grupo == "Paula G", 0, 1)
+
+gTablaDemografica2023$estrato <- as.numeric(gTablaDemografica2023$estrato)
+median_estrato_2023 <- median(gTablaDemografica2023$estrato, na.rm = TRUE)
+median_estrato_2023
+
+gTablaDemografica2023$d_estrato <- ifelse(gTablaDemografica2023$estrato > median_estrato_2023, 1, 0)
+
+modelo2023 <- lm(E4 ~ d_puniandes_2023, data = gTablaDemografica2023)
+summary(modelo2023)
+
+gTablaDemografica2023$cod_cruce <- as.character(gTablaDemografica2023$cod_cruce)
+write.csv(gTablaDemografica2023, paste0(transformed_data,"/gTablaDemografica2023.csv", collapse = ""), row.names = FALSE)
+
+```
+
+## Otras bases de interés
+```{r}
+correos <- lista_estudiantes %>%
+  select(Codigo, Correo)
+
+info_adicional <- lista_estudiantes %>%
+  select(Codigo, Nombres, semestre, seccion, grupo)
+
+write.csv(correos, paste0(transformed_data, "/correos.csv"), row.names = FALSE)
+write.csv(info_adicional, paste0(transformed_data, "/info_adicional.csv"), row.names = FALSE)
+```
+
+
